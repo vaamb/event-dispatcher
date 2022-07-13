@@ -1,26 +1,18 @@
 from collections.abc import Callable
 import logging
 from threading import Event, Thread
-from typing import Union
+from typing import Union, Set
 import uuid
 
-from werkzeug.local import Local
-
+from .context_var_wrapper import ContextVarWrapper
 from .event_handler import EventHandler
+from .exceptions import StopEvent, UnknownEvent
 
 
 STOP_SIGNAL = "__STOP__"
 
 
-class UnknownEvent(Exception):
-    pass
-
-
-class StopEvent(Exception):
-    pass
-
-
-dispatcher_ctx = Local()
+dispatcher_ctx = ContextVarWrapper()
 
 
 class DispatcherTemplate:
@@ -45,7 +37,7 @@ class DispatcherTemplate:
         self.rooms.add(self.host_uid)
         self._running = Event()
         self.threads = {}
-        self.event_handlers: set[EventHandler] = set()
+        self.event_handlers: Set[EventHandler] = set()
         self.handlers: dict[str: Callable] = {}
         self._fallback = None
 
