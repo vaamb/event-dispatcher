@@ -58,6 +58,17 @@ class KombuDispatcher(DispatcherTemplate):
     def _producer(self):
         return self._connection().Producer(exchange=self._exchange())
 
+    def _start(self):
+        try:
+            self._connection.connect()
+        except Exception as e:
+            self.logger.error(
+                f"Encountered an error while connecting to the server: Error msg: "
+                f"`{e.__class__.__name__}: {e}`."
+            )
+        else:
+            self._trigger_event("connect")
+
     def _parse_payload(self, payload: bytes) -> dict:
         return pickle.loads(payload)
 
