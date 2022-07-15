@@ -30,6 +30,9 @@ class BaseDispatcher(DispatcherTemplate):
             self.pubsub = StupidPubSub()
         super(BaseDispatcher, self).__init__(namespace, parent_logger)
 
+    def _start(self) -> None:
+        self._trigger_event("connect")
+
     def _parse_payload(self, payload: dict) -> dict:
         return payload
 

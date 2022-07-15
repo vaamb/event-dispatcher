@@ -37,9 +37,17 @@ class RedisDispatcher(DispatcherTemplate):
         self.redis_url = url
         super(RedisDispatcher, self).__init__(namespace, parent_logger)
 
-    def _connect(self):
-        self.redis = redis.Redis.from_url(self.redis_url, **self.redis_options)
-        self.pubsub = self.redis.pubsub(ignore_subscribe_messages=True)
+    def _start(self) -> None:
+        try:
+            self.redis = redis.Redis.from_url(self.redis_url, **self.redis_options)
+            self.pubsub = self.redis.pubsub(ignore_subscribe_messages=True)
+        except redis.ConnectionError as e:
+            self.logger.error(
+                f"Encountered an error while connecting to the server: Error msg: "
+                f"`{e.__class__.__name__}: {e}`."
+            )
+        else:
+            self._trigger_event("connect")
 
     def _parse_payload(self, payload: dict) -> dict:
         data = payload["data"]

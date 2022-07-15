@@ -12,7 +12,7 @@ from .exceptions import StopEvent, UnknownEvent
 STOP_SIGNAL = "__STOP__"
 
 
-dispatcher_ctx = ContextVarWrapper()
+context = ContextVarWrapper()
 
 
 class DispatcherTemplate:
@@ -40,6 +40,13 @@ class DispatcherTemplate:
         self.event_handlers: Set[EventHandler] = set()
         self.handlers: dict[str: Callable] = {}
         self._fallback = None
+
+    def _start(self) -> None:
+        """Method to call other methods just before starting the background thread.
+        """
+        raise NotImplementedError(
+            "This method needs to be implemented in a subclass"
+        )
 
     def _parse_payload(self, payload: dict) -> dict:
         """Method to parse the payload in case it was serialized before
@@ -72,9 +79,9 @@ class DispatcherTemplate:
                         remote_host_uid = message["host_uid"]
                         args = message.get("args", ())
                         kwargs = message.get("kwargs", {})
-                        dispatcher_ctx.sid = remote_host_uid
+                        context.sid = remote_host_uid
                         self._trigger_event(event, *args, **kwargs)
-                        del dispatcher_ctx.sid
+                        del context.sid
             except StopEvent:
                 break
 
@@ -105,7 +112,7 @@ class DispatcherTemplate:
                     f"Received unknown event '{event}' and no fallback function set"
                 )
         except Exception as e:
-            self.logger.error(
+            self.logger.debug(
                 f"Encountered an error while handling event '{event}'. Error "
                 f"msg: `{e.__class__.__name__}: {e}`"
             )
@@ -207,6 +214,7 @@ class DispatcherTemplate:
         if self._running.is_set():
             return
         self._running.set()
+        self._start()
         self.start_background_task(target=self._thread)
 
     def stop(self) -> None:
