@@ -6,10 +6,10 @@ try:
 except ImportError:
     kombu = None
 
-from .template import DispatcherTemplate
+from .ABC import Dispatcher
 
 
-class KombuDispatcher(DispatcherTemplate):
+class KombuDispatcher(Dispatcher):
     """An event dispatcher that uses Kombu as message broker
 
     This class implements an event dispatcher backend for event sharing across
@@ -35,7 +35,7 @@ class KombuDispatcher(DispatcherTemplate):
         if kombu is None:
             raise RuntimeError(
                 "Install 'kombu' package to use KombuDispatcher"
-        )
+            )
         super(KombuDispatcher, self).__init__(namespace, parent_logger)
         self.url = url
         self.producer = self._producer()
@@ -58,7 +58,7 @@ class KombuDispatcher(DispatcherTemplate):
     def _producer(self):
         return self._connection().Producer(exchange=self._exchange())
 
-    def _start(self):
+    def initialize(self):
         try:
             self._connection.connect()
         except Exception as e:

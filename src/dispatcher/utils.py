@@ -9,7 +9,7 @@ except ImportError:
 
 from .base_dispatcher import BaseDispatcher
 from .kombu_dispatcher import KombuDispatcher
-from .template import DispatcherTemplate
+from .ABC import Dispatcher
 
 
 _BROKER_CREATED = False
@@ -56,7 +56,7 @@ def configure_dispatcher(
         MESSAGE_BROKER_URL = _get_url(config)
         _BROKER_REACHABLE = 2
     elif _BROKER_CREATED and not silent:
-        logger.warning(
+        default_logger.warning(
             "It is not recommended to configure dispatchers once a dispatcher "
             "has been created. If you want to override this behavior, use "
             "'override=True'."
@@ -67,7 +67,7 @@ def get_dispatcher(
         namespace: str,
         config:  Union[dict, None, Type] = None,
         logger: logging.Logger = False,
-) -> DispatcherTemplate:
+) -> Dispatcher:
     """Get the required dispatcher
 
     In case the dispatcher relies on a backend server (on Redis for example),
@@ -130,7 +130,7 @@ def get_dispatcher(
 
 
 class RegisterEventMixin:
-    def register_dispatcher_events(self, dispatcher: DispatcherTemplate) -> None:
+    def register_dispatcher_events(self, dispatcher: Dispatcher) -> None:
         """Register the methods starting by "dispatch_" as an event handler"""
         for key in dir(self):
             if key.startswith("dispatch_"):

@@ -6,10 +6,10 @@ try:
 except ImportError:
     redis = None
 
-from .template import DispatcherTemplate
+from .ABC import Dispatcher
 
 
-class RedisDispatcher(DispatcherTemplate):
+class RedisDispatcher(Dispatcher):
     """Redis-based events dispatcher
 
     This class implements an event dispatcher using Redis as the message broker.
@@ -37,7 +37,7 @@ class RedisDispatcher(DispatcherTemplate):
         self.redis_url = url
         super(RedisDispatcher, self).__init__(namespace, parent_logger)
 
-    def _start(self) -> None:
+    def initialize(self) -> None:
         try:
             self.redis = redis.Redis.from_url(self.redis_url, **self.redis_options)
             self.pubsub = self.redis.pubsub(ignore_subscribe_messages=True)
