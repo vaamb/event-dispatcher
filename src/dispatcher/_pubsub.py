@@ -1,13 +1,14 @@
 """A simple in-memory pub_sub message broker to be used by the dispatcher."""
 
 from queue import Queue
+from typing import Iterable, AsyncIterable
 
 
 class Broker:
     def __init__(self) -> None:
-        self.clients = set()
+        self.clients: set["StupidPubSub"] = set()
 
-    def link(self, client) -> None:
+    def link(self, client: "StupidPubSub") -> None:
         self.clients.add(client)
 
     def push(self, payload: dict) -> int:
@@ -33,7 +34,7 @@ class StupidPubSub:
             else:
                 raise TypeError("broker needs to be an instance of Broker()")
         self.broker.link(self)
-        self.channels = set()
+        self.channels: set[str] = set()
         self.messages = Queue()
 
     def subscribe(self, channel: str) -> None:
@@ -50,12 +51,7 @@ class StupidPubSub:
         published = self.broker.push(payload)
         return published
 
-    def get_message(self) -> dict:
-        if self.messages.qsize():
-            return self.messages.get(timeout=0.01)
-        return {}
-
-    def listen(self) -> dict:
+    def listen(self) -> Iterable[dict]:
         while self.subscribed:
             response = self.messages.get()
             if response is not None:
@@ -64,3 +60,16 @@ class StupidPubSub:
     @property
     def subscribed(self) -> bool:
         return bool(self.channels)
+
+
+class AsyncPubSub(StupidPubSub):
+    async def publish(self, channel: str, message: dict) -> int:
+        payload = {"namespace": channel, "data": message}
+        published = self.broker.push(payload)
+        return published
+
+    async def listen(self) -> AsyncIterable[dict]:
+        while self.subscribed:
+            response = self.messages.get()
+            if response is not None:
+                yield response

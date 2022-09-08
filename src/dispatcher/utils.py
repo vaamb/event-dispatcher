@@ -2,14 +2,17 @@ import inspect
 import logging
 from typing import Type, Union
 
+from .async_base_dispatcher import AsyncBaseDispatcher
+from .async_amqp_dispatcher import AsyncAMQPDispatcher
+from .async_redis_dispatcher import AsyncRedisDispatcher
+from .base_dispatcher import BaseDispatcher
+from .kombu_dispatcher import KombuDispatcher
+from .ABC import Dispatcher
+
 try:
     import kombu
 except ImportError:
     kombu = None
-
-from .base_dispatcher import BaseDispatcher
-from .kombu_dispatcher import KombuDispatcher
-from .ABC import Dispatcher
 
 
 _BROKER_CREATED = False
@@ -39,22 +42,18 @@ def _get_url(config: Union[dict, None, Type]) -> str:
 
 def configure_dispatcher(
         config: Union[dict, Type],
-        override: bool = False,
         silent: bool = True,
 ) -> None:
     """Set dispatcher configuration
 
     :param config: A class or dict containing at least the 'MESSAGE_BROKER_URL'
                    field
-    :param override: Override the configuration in case a dispatcher was already
-                     created
     :param silent: Log the warning when a dispatcher was already created
     """
 
     global _BROKER_CREATED, _BROKER_REACHABLE,  MESSAGE_BROKER_URL
-    if not _BROKER_CREATED or override:
+    if not _BROKER_CREATED:
         MESSAGE_BROKER_URL = _get_url(config)
-        _BROKER_REACHABLE = 2
     elif _BROKER_CREATED and not silent:
         default_logger.warning(
             "It is not recommended to configure dispatchers once a dispatcher "
@@ -67,6 +66,7 @@ def get_dispatcher(
         namespace: str,
         config:  Union[dict, None, Type] = None,
         logger: logging.Logger = False,
+        async_based: bool = False,
 ) -> Dispatcher:
     """Get the required dispatcher
 
@@ -79,6 +79,7 @@ def get_dispatcher(
     :param config: A class or dict containing at least the 'MESSAGE_BROKER_URL'
                    field
     :param logger: A logging.Logger instance
+    :param async_based: Whether to return an async version of the dispatcher
     :return: A dispatcher instance
     """
     global _BROKER_CREATED, _BROKER_REACHABLE
@@ -89,7 +90,10 @@ def get_dispatcher(
     url = _get_url(config)
     server = url[:url.index("://")]
     if server == "memory":
-        return BaseDispatcher(namespace, parent_logger=logger)
+        if not async_based:
+            return BaseDispatcher(namespace, parent_logger=logger)
+        else:
+            return AsyncBaseDispatcher(namespace, parent_logger=logger)
     elif server == "kombuMemory":
         if kombu is None:
             raise RuntimeError(
@@ -99,28 +103,15 @@ def get_dispatcher(
             namespace, "memory://", parent_logger=logger,
             exchange_opt={"name": "gaia"}
         )
+    elif server == "redis" and async_based:
+        return AsyncRedisDispatcher(namespace, url, parent_logger=logger)
+    elif server == "amqp" and async_based:
+        return AsyncAMQPDispatcher(namespace, url, parent_logger=logger)
     elif server in KOMBU_SUPPORTED:
-        if _BROKER_REACHABLE == 2:
-            if kombu is None:
-                raise RuntimeError(
-                    f"Install 'kombu' package to use '{server}' as message broker"
-                )
-            conn = kombu.Connection(url)
-            try:
-                conn.connection()
-                _BROKER_REACHABLE = 1
-            except Exception as e:
-                logger.warning(
-                    f"Cannot connect to {server} server, using base dispatcher "
-                    f"instead. Error msg: {e.__class__.__name__}: {e}"
-                )
-                _BROKER_REACHABLE = 0
-        if _BROKER_REACHABLE is True:
-            return KombuDispatcher(
-                namespace, url, parent_logger=logger,
-                exchange_opt={"name": "gaia"}
-            )
-        return BaseDispatcher(namespace, parent_logger=logger)
+        return KombuDispatcher(
+            namespace, url, parent_logger=logger,
+            exchange_opt={"name": "gaia"}
+        )
     else:
         logger.warning(
             f"{server} is not supported. Either use a message broker supported "

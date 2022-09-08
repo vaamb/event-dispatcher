@@ -60,7 +60,7 @@ class KombuDispatcher(Dispatcher):
 
     def initialize(self):
         try:
-            self._connection.connect()
+            self._connection().connect()
         except Exception as e:
             self.logger.error(
                 f"Encountered an error while connecting to the server: Error msg: "
@@ -86,8 +86,8 @@ class KombuDispatcher(Dispatcher):
         )
 
     def _listen(self):
-        reader_queue = self._queue()
         while True:
+            reader_queue = self._queue()
             connection = self._connection().ensure_connection(
                 errback=self._error_callback
             )

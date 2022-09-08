@@ -35,7 +35,7 @@ class RedisDispatcher(Dispatcher):
         )
         self.redis_options = redis_options or {}
         self.redis_url = url
-        super(RedisDispatcher, self).__init__(namespace, parent_logger)
+        super().__init__(namespace=namespace, parent_logger=parent_logger)
 
     def initialize(self) -> None:
         try:

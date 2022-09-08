@@ -95,6 +95,11 @@ class Dispatcher:
                         del context.sid
             except StopEvent:
                 break
+            except Exception as e:
+                self.logger.error(
+                    f"Encountered an error. Error msg: "
+                    f"`{e.__class__.__name__}: {e}`"
+                )
 
     def _stop_signal_handler(self, *args, **kwargs) -> None:
         self._running.clear()
@@ -243,7 +248,7 @@ class AsyncDispatcher(Dispatcher):
             namespace: str,
             parent_logger: logging.Logger = None
     ) -> None:
-        super(AsyncDispatcher, self).__init__(namespace, parent_logger)
+        super().__init__(namespace, parent_logger)
 
     def _parse_payload(self, payload: dict) -> dict:
         """Method to parse the payload in case it was serialized before
@@ -281,6 +286,11 @@ class AsyncDispatcher(Dispatcher):
                         del context.sid
             except StopEvent:
                 break
+            except Exception as e:
+                self.logger.error(
+                    f"Encountered an error. Error msg: "
+                    f"`{e.__class__.__name__}: {e}`"
+                )
 
     async def _trigger_event(
             self,
