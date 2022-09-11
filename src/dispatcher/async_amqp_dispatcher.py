@@ -26,11 +26,11 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
         return await connection.channel()
 
     async def _exchange(self, channel):
-        return await channel.declare_exchange(self.namespace)
+        return await channel.declare_exchange("ouranos")
 
     async def _queue(self, channel, exchange):
         queue = await channel.declare_queue(name=self.namespace)
-        await queue.bind(exchange)
+        await queue.bind(exchange, routing_key=self.namespace)
         return queue
 
     def _parse_payload(self, payload: bytes) -> dict:
