@@ -29,7 +29,7 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
         return await channel.declare_exchange(self.namespace)
 
     async def _queue(self, channel, exchange):
-        queue = await channel.declare_queue()
+        queue = await channel.declare_queue(name=self.namespace)
         await queue.bind(exchange)
         return queue
 
