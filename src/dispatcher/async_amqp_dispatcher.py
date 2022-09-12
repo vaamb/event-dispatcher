@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import pickle
 
@@ -61,4 +62,5 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
                 self.logger.exception("Connection error while reading from queue")
 
     def initialize(self) -> None:
-        self._trigger_event("connect")
+        loop = asyncio.get_event_loop()
+        loop.create_task(self._trigger_event("connect"))

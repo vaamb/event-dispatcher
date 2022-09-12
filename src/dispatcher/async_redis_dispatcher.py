@@ -1,4 +1,5 @@
-import logging
+
+import asyncioimport logging
 import pickle
 
 from .ABC import AsyncDispatcher
@@ -55,7 +56,8 @@ class AsyncRedisDispatcher(AsyncDispatcher):
                 f"`{e.__class__.__name__}: {e}`."
             )
         else:
-            self._trigger_event("connect")
+            loop = asyncio.get_event_loop()
+            loop.create_task(self._trigger_event("connect"))
 
     def _parse_payload(self, payload: dict) -> dict:
         data = payload["data"]

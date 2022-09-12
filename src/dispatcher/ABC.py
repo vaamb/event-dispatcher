@@ -154,11 +154,6 @@ class Dispatcher:
         if room in self.rooms:
             self.rooms.remove(room)
 
-    async def initialize(self) -> None:
-        """Method to call other methods just before starting the background thread.
-        """
-        pass
-
     def register_event_handler(self, event_handler: EventHandler) -> None:
         """Register an event handler."""
         if event_handler.asyncio_based:
@@ -325,6 +320,11 @@ class AsyncDispatcher(Dispatcher):
                 f"msg: `{e.__class__.__name__}: {e}`"
             )
 
+    def initialize(self) -> None:
+        """Method to call other methods just before starting the background thread.
+        """
+        pass
+
     def register_event_handler(self, event_handler: EventHandler) -> None:
         """Register an event handler."""
         if not event_handler.asyncio_based:
@@ -358,18 +358,19 @@ class AsyncDispatcher(Dispatcher):
         for n in namespace:
             await self._publish(n, payload)
 
-    async def start_background_task(self, target: Callable, *args, **kwargs):
+    def start_background_task(self, target: Callable, *args, **kwargs):
         """Override to use another threading method"""
         return asyncio.ensure_future(target(*args, **kwargs))
 
-    async def start(self) -> None:
+    def start(self, loop=None) -> None:
         """Start to dispatch events."""
         if self._running.is_set():
             return
         self._running.set()
-        await self.initialize()
-        await self.start_background_task(self._thread)
-        loop = asyncio.get_event_loop()
+        self.initialize()
+        self.start_background_task(self._thread)
+        if not loop:
+            loop = asyncio.get_event_loop()
         if not loop.is_running():
             loop.run_forever()
 

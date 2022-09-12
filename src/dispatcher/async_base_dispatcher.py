@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from ._pubsub import AsyncPubSub
@@ -26,8 +27,9 @@ class AsyncBaseDispatcher(AsyncDispatcher):
         self.pubsub = AsyncPubSub()
         super().__init__(namespace, parent_logger)
 
-    async def initialize(self) -> None:
-        await self._trigger_event("connect")
+    def initialize(self) -> None:
+        loop = asyncio.get_event_loop()
+        loop.create_task(self._trigger_event("connect"))
 
     def _parse_payload(self, payload: dict) -> dict:
         return payload

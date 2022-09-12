@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import inspect
 import logging
 from typing import Type, Union
@@ -7,7 +9,8 @@ from .async_amqp_dispatcher import AsyncAMQPDispatcher
 from .async_redis_dispatcher import AsyncRedisDispatcher
 from .base_dispatcher import BaseDispatcher
 from .kombu_dispatcher import KombuDispatcher
-from .ABC import Dispatcher
+from .ABC import AsyncDispatcher, Dispatcher
+
 
 try:
     import kombu
@@ -67,7 +70,7 @@ def get_dispatcher(
         config:  Union[dict, None, Type] = None,
         logger: logging.Logger = False,
         async_based: bool = False,
-) -> Dispatcher:
+) -> AsyncDispatcher | Dispatcher:
     """Get the required dispatcher
 
     In case the dispatcher relies on a backend server (on Redis for example),
