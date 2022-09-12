@@ -154,6 +154,11 @@ class Dispatcher:
         if room in self.rooms:
             self.rooms.remove(room)
 
+    async def initialize(self) -> None:
+        """Method to call other methods just before starting the background thread.
+        """
+        pass
+
     def register_event_handler(self, event_handler: EventHandler) -> None:
         """Register an event handler."""
         if event_handler.asyncio_based:
@@ -273,7 +278,7 @@ class AsyncDispatcher(Dispatcher):
     async def _thread(self) -> None:
         while self._running.is_set():
             try:
-                for payload in await self._listen():
+                async for payload in self._listen():
                     message = self._parse_payload(payload)
                     event = message["event"]
                     room = message.get("room", self.host_uid)
@@ -362,7 +367,7 @@ class AsyncDispatcher(Dispatcher):
         if self._running.is_set():
             return
         self._running.set()
-        self.initialize()
+        await self.initialize()
         await self.start_background_task(self._thread)
         loop = asyncio.get_event_loop()
         if not loop.is_running():

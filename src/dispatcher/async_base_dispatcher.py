@@ -1,10 +1,10 @@
 import logging
 
 from ._pubsub import AsyncPubSub
-from .base_dispatcher import BaseDispatcher
+from .ABC import AsyncDispatcher
 
 
-class AsyncBaseDispatcher(BaseDispatcher):
+class AsyncBaseDispatcher(AsyncDispatcher):
     """A simple in memory Pub Sub-based event dispatcher
 
     This class implements an event dispatcher using StupidPubSub as the message
@@ -23,8 +23,14 @@ class AsyncBaseDispatcher(BaseDispatcher):
             namespace: str,
             parent_logger: logging.Logger = None
     ) -> None:
-        super(BaseDispatcher, self).__init__(namespace, parent_logger)
         self.pubsub = AsyncPubSub()
+        super().__init__(namespace, parent_logger)
+
+    async def initialize(self) -> None:
+        await self._trigger_event("connect")
+
+    def _parse_payload(self, payload: dict) -> dict:
+        return payload
 
     async def _publish(self, namespace: str, payload: dict) -> int:
         return await self.pubsub.publish(namespace, payload)

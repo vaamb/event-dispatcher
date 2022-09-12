@@ -71,5 +71,6 @@ class AsyncPubSub(StupidPubSub):
     async def listen(self) -> AsyncIterable[dict]:
         while self.subscribed:
             response = self.messages.get()
+            print(1)
             if response is not None:
                 yield response
