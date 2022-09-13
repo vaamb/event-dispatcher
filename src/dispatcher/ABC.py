@@ -309,7 +309,7 @@ class AsyncDispatcher(Dispatcher):
                     if event_return != "__not_triggered__":
                         return await event_return
             if self._fallback:
-                return self._fallback(*args, **kwargs)
+                return await self._fallback(*args, **kwargs)
             else:
                 raise UnknownEvent(
                     f"Received unknown event '{event}' and no fallback function set"
@@ -338,8 +338,8 @@ class AsyncDispatcher(Dispatcher):
             self,
             namespace: list | str | tuple,
             event: str,
-            room: str = None,
             *args,
+            room: str = None,
             **kwargs
     ) -> None:
         """Emit an event to a single or multiple namespace(s)
@@ -360,7 +360,8 @@ class AsyncDispatcher(Dispatcher):
 
     def start_background_task(self, target: Callable, *args, **kwargs):
         """Override to use another threading method"""
-        return asyncio.ensure_future(target(*args, **kwargs))
+        loop = kwargs.pop("loop", None)
+        return asyncio.ensure_future(target(*args, **kwargs), loop=loop)
 
     def start(self, loop=None) -> None:
         """Start to dispatch events."""
@@ -368,11 +369,9 @@ class AsyncDispatcher(Dispatcher):
             return
         self._running.set()
         self.initialize()
-        self.start_background_task(self._thread)
         if not loop:
             loop = asyncio.get_event_loop()
-        if not loop.is_running():
-            loop.run_forever()
+        self.start_background_task(self._thread, loop=loop)
 
     async def stop(self) -> None:
         """Stop to dispatch events."""

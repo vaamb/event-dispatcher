@@ -1,5 +1,6 @@
 """A simple in-memory pub_sub message broker to be used by the dispatcher."""
 
+import asyncio
 from queue import Queue
 from typing import Iterable, AsyncIterable
 
@@ -21,7 +22,20 @@ class Broker:
         return pushed
 
 
+class AsyncBroker(Broker):
+    async def push(self, payload: dict) -> int:
+        pushed = 0
+        self.clients: set["AsyncPubSub"]
+        for client in self.clients:
+            if payload["namespace"] in client.channels:
+                data = payload["data"]
+                await client.messages.put(data)
+                pushed += 1
+        return pushed
+
+
 _broker = Broker()
+_async_broker = AsyncBroker()
 
 
 class StupidPubSub:
@@ -53,7 +67,7 @@ class StupidPubSub:
 
     def listen(self) -> Iterable[dict]:
         while self.subscribed:
-            response = self.messages.get()
+            response = self.messages.get(block=False)
             if response is not None:
                 yield response
 
@@ -63,14 +77,19 @@ class StupidPubSub:
 
 
 class AsyncPubSub(StupidPubSub):
+    def __init__(self, broker: AsyncBroker = None):
+        if not broker:
+            broker = _async_broker
+        super().__init__(broker)
+        self.messages = asyncio.Queue()
+
     async def publish(self, channel: str, message: dict) -> int:
         payload = {"namespace": channel, "data": message}
-        published = self.broker.push(payload)
+        published = await self.broker.push(payload)
         return published
 
     async def listen(self) -> AsyncIterable[dict]:
         while self.subscribed:
-            response = self.messages.get()
-            print(1)
+            response = await self.messages.get()
             if response is not None:
                 yield response
