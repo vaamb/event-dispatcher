@@ -369,8 +369,6 @@ class AsyncDispatcher(Dispatcher):
             return
         self._running.set()
         self.initialize()
-        if not loop:
-            loop = asyncio.get_event_loop()
         self.start_background_task(self._thread, loop=loop)
 
     async def stop(self) -> None:
