@@ -38,7 +38,6 @@ class KombuDispatcher(Dispatcher):
             )
         super(KombuDispatcher, self).__init__(namespace, parent_logger)
         self.url = url
-        self.producer = self._producer()
         self.exchange_opt = exchange_opt or {}
 
     def _exchange(self):
@@ -78,8 +77,9 @@ class KombuDispatcher(Dispatcher):
     def _publish(self, namespace: str, payload: dict):
         message = pickle.dumps(payload)
         connection = self._connection()
+        producer = self._producer()
         publish = connection.ensure(
-            self.producer, self.producer.publish, errback=self._error_callback
+            producer, producer.publish, errback=self._error_callback
         )
         publish(
             message, routing_key=namespace, declare=[self._queue()]
