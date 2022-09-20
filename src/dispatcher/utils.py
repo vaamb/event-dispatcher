@@ -104,7 +104,7 @@ def get_dispatcher(
             )
         return KombuDispatcher(
             namespace, "memory://", parent_logger=logger,
-            exchange_opt={"name": "gaia"}
+            exchange_opt={"name": "ouranos"}
         )
     elif server == "redis" and async_based:
         return AsyncRedisDispatcher(namespace, url, parent_logger=logger)
@@ -113,7 +113,7 @@ def get_dispatcher(
     elif server in KOMBU_SUPPORTED:
         return KombuDispatcher(
             namespace, url, parent_logger=logger,
-            exchange_opt={"name": "gaia"}
+            exchange_opt={"name": "ouranos"}
         )
     else:
         logger.warning(
