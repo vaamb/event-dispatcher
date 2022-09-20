@@ -60,6 +60,8 @@ class EventHandler:
 
 
 class AsyncEventHandler(EventHandler):
+    asyncio_based = True
+    
     async def trigger_event(self, event: str, *args, **kwargs):
         """Dispatch an event to the correct handler method.
 

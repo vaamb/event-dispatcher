@@ -371,6 +371,6 @@ class AsyncDispatcher(Dispatcher):
         self.initialize()
         self.start_background_task(self._thread, loop=loop)
 
-    async def stop(self) -> None:
+    def stop(self) -> None:
         """Stop to dispatch events."""
-        await self.emit(self.namespace, STOP_SIGNAL)
+        asyncio.ensure_future(self.emit(self.namespace, STOP_SIGNAL))
