@@ -1,5 +1,4 @@
 import logging
-import pickle
 
 try:
     import kombu
@@ -68,21 +67,17 @@ class KombuDispatcher(Dispatcher):
         else:
             self._trigger_event("connect")
 
-    def _parse_payload(self, payload: bytes) -> dict:
-        return pickle.loads(payload)
-
     def _error_callback(self, exception, interval):
         self.logger.exception(f"Sleeping {interval}s")
 
-    def _publish(self, namespace: str, payload: dict):
-        message = pickle.dumps(payload)
+    def _publish(self, namespace: str, payload: bytes):
         connection = self._connection()
         producer = self._producer()
         publish = connection.ensure(
             producer, producer.publish, errback=self._error_callback
         )
         publish(
-            message, routing_key=namespace, declare=[self._queue(namespace)]
+            payload, routing_key=namespace, declare=[self._queue(namespace)]
         )
 
     def _listen(self):

@@ -29,9 +29,6 @@ class BaseDispatcher(Dispatcher):
     def initialize(self) -> None:
         self._trigger_event("connect")
 
-    def _parse_payload(self, payload: dict) -> dict:
-        return payload
-
     def _publish(self, namespace: str, payload: dict) -> int:
         return self.pubsub.publish(namespace, payload)
 

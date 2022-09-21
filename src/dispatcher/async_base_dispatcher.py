@@ -31,9 +31,6 @@ class AsyncBaseDispatcher(AsyncDispatcher):
         loop = asyncio.get_event_loop()
         loop.create_task(self._trigger_event("connect"))
 
-    def _parse_payload(self, payload: dict) -> dict:
-        return payload
-
     async def _publish(self, namespace: str, payload: dict) -> int:
         return await self.pubsub.publish(namespace, payload)
 

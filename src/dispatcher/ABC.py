@@ -10,6 +10,7 @@ import uuid
 from .context_var_wrapper import ContextVarWrapper
 from .event_handler import AsyncEventHandler, EventHandler
 from .exceptions import StopEvent, UnknownEvent
+from .serializer import Serializer
 
 
 STOP_SIGNAL = "__STOP__"
@@ -46,15 +47,7 @@ class Dispatcher:
         self._fallback = None
         self._sessions = {}
 
-    def _parse_payload(self, payload: dict | bytes) -> dict:
-        """Method to parse the payload in case it was serialized before
-        publishing.
-        """
-        raise NotImplementedError(
-            "This method needs to be implemented in a subclass"
-        )
-
-    def _publish(self, namespace: str, payload: dict) -> None:
+    def _publish(self, namespace: str, payload: bytes) -> None:
         """Publish the payload to the namespace."""
         raise NotImplementedError(
             "This method needs to be implemented in a subclass"
@@ -70,7 +63,7 @@ class Dispatcher:
         while self._running.is_set():
             try:
                 for payload in self._listen():
-                    message = self._parse_payload(payload)
+                    message = Serializer.loads(payload)
                     event = message["event"]
                     room = message.get("room", self.host_uid)
                     if room in self.rooms:
@@ -219,7 +212,7 @@ class Dispatcher:
             self,
             event: str,
             data: Any = None,
-            to: dict | None = None,
+            to: str | None = None,
             room: str | None = None,
             namespace: str | None = None,
             **kwargs
@@ -236,7 +229,8 @@ class Dispatcher:
             namespace = namespace.strip("/")
         namespace = namespace or "root"
         room = to or room
-        payload = self.generate_payload(event, room, data)
+        payload: dict = self.generate_payload(event, room, data)
+        payload: bytes = Serializer.dumps(payload)
         self._publish(namespace, payload)
 
     def start_background_task(self, target: Callable, *args) -> Thread:
@@ -281,7 +275,7 @@ class AsyncDispatcher(Dispatcher):
             "This method needs to be implemented in a subclass"
         )
 
-    async def _publish(self, namespace: str, payload: dict) -> None:
+    async def _publish(self, namespace: str, payload: bytes) -> None:
         """Publish the payload to the namespace."""
         raise NotImplementedError(
             "This method needs to be implemented in a subclass"
@@ -366,7 +360,7 @@ class AsyncDispatcher(Dispatcher):
             self,
             event: str,
             data: Any = None,
-            to: dict | None = None,
+            to: str | None = None,
             room: str | None = None,
             namespace: str | None = None,
             **kwargs
@@ -383,7 +377,8 @@ class AsyncDispatcher(Dispatcher):
             namespace = namespace.strip("/")
         namespace = namespace or "root"
         room = to or room
-        payload = self.generate_payload(event, room, data)
+        payload: dict = self.generate_payload(event, room, data)
+        payload: bytes = Serializer.dumps(payload)
         await self._publish(namespace, payload)
 
     def start_background_task(self, target: Callable, *args, **kwargs):

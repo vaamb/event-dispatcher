@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import pickle
 
 from .ABC import AsyncDispatcher
 
@@ -34,15 +33,12 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
         await queue.bind(exchange, routing_key=self.namespace)
         return queue
 
-    def _parse_payload(self, payload: bytes) -> dict:
-        return pickle.loads(payload)
-
-    async def _publish(self, namespace: str, payload: dict):
+    async def _publish(self, namespace: str, payload: bytes):
         connection = await self._connection()
         channel = await self._channel(connection)
         exchange = await self._exchange(channel)
         await exchange.publish(
-            aio_pika.Message(body=pickle.dumps(payload),
+            aio_pika.Message(body=payload,
                              delivery_mode=aio_pika.DeliveryMode.PERSISTENT),
             routing_key=namespace
         )

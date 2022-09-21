@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import pickle
 
 from .ABC import AsyncDispatcher
 
@@ -59,15 +58,11 @@ class AsyncRedisDispatcher(AsyncDispatcher):
             loop = asyncio.get_event_loop()
             loop.create_task(self._trigger_event("connect"))
 
-    def _parse_payload(self, payload: dict) -> dict:
-        data = payload["data"]
-        return pickle.loads(data)
-
-    async def _publish(self, namespace: str, payload: dict) -> int:
-        message = pickle.dumps(payload)
-        return await self.redis.publish(namespace, message)
+    async def _publish(self, namespace: str, payload: bytes) -> int:
+        return await self.redis.publish(namespace, payload)
 
     async def _listen(self):
         self.pubsub.subscribe(self.namespace)
         for message in await self.pubsub.listen():
-            yield message
+            if "data" in message:
+                yield message["data"]

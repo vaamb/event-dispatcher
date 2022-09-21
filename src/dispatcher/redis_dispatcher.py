@@ -1,5 +1,4 @@
 import logging
-import pickle
 
 try:
     import redis
@@ -49,15 +48,11 @@ class RedisDispatcher(Dispatcher):
         else:
             self._trigger_event("connect")
 
-    def _parse_payload(self, payload: dict) -> dict:
-        data = payload["data"]
-        return pickle.loads(data)
-
-    def _publish(self, namespace: str, payload: dict) -> int:
-        message = pickle.dumps(payload)
-        return self.redis.publish(namespace, message)
+    def _publish(self, namespace: str, payload: bytes) -> int:
+        return self.redis.publish(namespace, payload)
 
     def _listen(self):
         self.pubsub.subscribe(self.namespace)
         for message in self.pubsub.listen():
-            yield message
+            if "data" in message:
+                yield message["data"]
