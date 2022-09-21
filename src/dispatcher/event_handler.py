@@ -98,9 +98,9 @@ class AsyncEventHandler(EventHandler):
             )
         self._dispatcher: AsyncDispatcher = dispatcher
 
-    async def session(self, sid: str, namespace: str | None = None):
+    def session(self, sid: str, namespace: str | None = None):
         namespace = namespace or self.namespace
-        return await self._dispatcher.session(sid, namespace)
+        return self._dispatcher.session(sid, namespace)
 
     async def disconnect(self, sid: str, namespace: str | None = None) -> None:
         namespace = namespace or self.namespace

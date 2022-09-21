@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import Callable
 import logging
 from threading import Event, Thread
-from typing import Any
+from typing import Any, AsyncIterable, Iterable
 import uuid
 
 from .context_var_wrapper import ContextVarWrapper
@@ -53,7 +53,7 @@ class Dispatcher:
             "This method needs to be implemented in a subclass"
         )
 
-    def _listen(self):
+    def _listen(self) -> Iterable:
         """Get a generator that yields payloads that will be parsed."""
         raise NotImplementedError(
             "This method needs to be implemented in a subclass"
@@ -273,7 +273,7 @@ class AsyncDispatcher(Dispatcher):
             "This method needs to be implemented in a subclass"
         )
 
-    async def _listen(self):
+    async def _listen(self) -> AsyncIterable:
         """Get a generator that yields payloads that will be parsed."""
         raise NotImplementedError(
             "This method needs to be implemented in a subclass"
@@ -333,8 +333,21 @@ class AsyncDispatcher(Dispatcher):
         """
         pass
 
-    async def session(self, sid: str, namespace: str | None = None):
-        return super().session(sid, namespace)
+    def session(self, sid: str, namespace: str | None = None):
+        class _session_ctx_manager:
+            def __init__(self, dispatcher, sid, namespace):
+                self.dispatcher = dispatcher
+                self.sid = sid
+                self.namespace = namespace
+                self.session = None
+
+            async def __aenter__(self):
+                self.session = self.dispatcher._sessions.get(sid, {})
+
+            async def __aexit__(self, *args):
+                self.dispatcher._sessions[sid] = self.session
+
+        return _session_ctx_manager(self, sid, namespace)
 
     async def disconnect(self, sid: str, namespace: str | None = None) -> None:
         pass  # TODO
