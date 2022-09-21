@@ -36,7 +36,7 @@ class Dispatcher:
         logger = None
         if parent_logger:
             logger = parent_logger.getChild(namespace)
-        self.namespace = namespace
+        self.namespace = namespace.strip("/")
         self.logger = logger or logging.getLogger(f"dispatcher.{namespace}")
         self.host_uid = uuid.uuid4().hex
         self.rooms = set()
@@ -156,7 +156,7 @@ class Dispatcher:
             def __init__(self, dispatcher, sid, namespace):
                 self.dispatcher = dispatcher
                 self.sid = sid
-                self.namespace = namespace
+                self.namespace = namespace.strip("/")
                 self.session = None
 
             def __enter__(self):
@@ -338,7 +338,7 @@ class AsyncDispatcher(Dispatcher):
             def __init__(self, dispatcher, sid, namespace):
                 self.dispatcher = dispatcher
                 self.sid = sid
-                self.namespace = namespace
+                self.namespace = namespace.strip("/")
                 self.session = None
 
             async def __aenter__(self):
