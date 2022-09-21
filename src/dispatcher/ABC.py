@@ -267,14 +267,6 @@ class AsyncDispatcher(Dispatcher):
     ) -> None:
         super().__init__(namespace, parent_logger)
 
-    def _parse_payload(self, payload: dict) -> dict:
-        """Method to parse the payload in case it was serialized before
-        publishing.
-        """
-        raise NotImplementedError(
-            "This method needs to be implemented in a subclass"
-        )
-
     async def _publish(self, namespace: str, payload: bytes) -> None:
         """Publish the payload to the namespace."""
         raise NotImplementedError(
@@ -291,7 +283,7 @@ class AsyncDispatcher(Dispatcher):
         while self._running.is_set():
             try:
                 async for payload in self._listen():
-                    message = self._parse_payload(payload)
+                    message = Serializer.loads(payload)
                     event = message["event"]
                     room = message.get("room", self.host_uid)
                     if room in self.rooms:
