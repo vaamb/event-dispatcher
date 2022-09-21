@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+import typing as t
+from typing import Any
+
+
+if t.TYPE_CHECKING:
+    from .ABC import AsyncDispatcher, Dispatcher
+
 
 class EventHandler:
     asyncio_based = False
@@ -9,25 +16,44 @@ class EventHandler:
     A class-based event-handler is a class that contains methods to handle the
     events for a dispatcher.
     """
-    def __init__(self):
-        self._dispatcher = None
+    def __init__(self, namespace: str = "root") -> None:
+        self.namespace = namespace
+        self._dispatcher: AsyncDispatcher | Dispatcher | None = None
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         return self.__dict__.keys() == other.__dict__.keys()
 
     def __hash__(self):
         return hash(tuple(self.__dict__.keys()))
 
-    def _set_dispatcher(self, dispatcher):
-        self._dispatcher = dispatcher
+    def _set_dispatcher(self, dispatcher: Dispatcher) -> None:
+        if dispatcher.asyncio_based:
+            raise RuntimeError(
+                "dispatcher must be an instance of Dispatcher class"
+            )
+        self._dispatcher: Dispatcher = dispatcher
+
+    def enter_room(self, sid: str, room: str, namespace: str | None = None) -> None:
+        namespace = namespace or self.namespace
+        self._dispatcher.enter_room(sid, room, namespace)
+
+    def leave_room(self, sid: str, room: str, namespace: str | None = None) -> None:
+        namespace = namespace or self.namespace
+        self._dispatcher.leave_room(sid, room, namespace)
+
+    def session(self, sid: str, namespace: str | None = None):
+        namespace = namespace or self.namespace
+        return self._dispatcher.session(sid, namespace)
+
+    def disconnect(self, sid: str, namespace: str | None = None) -> None:
+        namespace = namespace or self.namespace
+        self._dispatcher.disconnect(sid, namespace)
 
     def trigger_event(self, event: str, *args, **kwargs):
         """Dispatch an event to the correct handler method.
 
         :param event: The name of the event to handle.
-        :param args: Optional arguments to be passed to the event handler.
-        :param kwargs: Optional key word arguments to be passed to the event
-                       handler.
+        :param data: The data to pass to the handling function.
         """
         handler = f"on_{event}"
         if hasattr(self, handler):
@@ -36,39 +62,55 @@ class EventHandler:
 
     def emit(
             self,
-            namespace: list | str | tuple,
             event: str,
-            *args,
+            data: Any = None,
+            to: dict | None = None,
+            room: str | None = None,
+            namespace: str | None = None,
             **kwargs
     ) -> None:
         """Emit an event to a single or multiple namespace(s)
 
-        :param namespace: The namespace(s) to which the event will be sent.
         :param event: The event name.
-        :param args: Optional arguments to be passed to the event handler.
-        :param kwargs: Optional key word arguments to be passed to the event
-                       handler.
+        :param data: The data to send to the required dispatcher.
+        :param to: The recipient of the message.
+        :param room: An alias to `to`
+        :param namespace: The namespace to which the event will be sent.
         """
-        if not self._dispatcher:
+        if self._dispatcher is None:
             raise RuntimeError(
                 "You need to register this EventHandler in order to use it"
             )
         if isinstance(namespace, str):
-            namespace = namespace.split(",")
-        for n in namespace:
-            self._dispatcher.emit(n, event, *args, **kwargs)
+            namespace = namespace.strip("/")
+        namespace = namespace or self.namespace
+        room = to or room
+        self._dispatcher.emit(event, data, to, room, namespace)
 
 
 class AsyncEventHandler(EventHandler):
     asyncio_based = True
-    
+
+    def _set_dispatcher(self, dispatcher: AsyncDispatcher) -> None:
+        if not dispatcher.asyncio_based:
+            raise RuntimeError(
+                "dispatcher must be an instance of Dispatcher class"
+            )
+        self._dispatcher: AsyncDispatcher = dispatcher
+
+    async def session(self, sid: str, namespace: str | None = None):
+        namespace = namespace or self.namespace
+        return await self._dispatcher.session(sid, namespace)
+
+    async def disconnect(self, sid: str, namespace: str | None = None) -> None:
+        namespace = namespace or self.namespace
+        await self._dispatcher.disconnect(sid, namespace)
+
     async def trigger_event(self, event: str, *args, **kwargs):
         """Dispatch an event to the correct handler method.
 
         :param event: The name of the event to handle.
-        :param args: Optional arguments to be passed to the event handler.
-        :param kwargs: Optional key word arguments to be passed to the event
-                       handler.
+        :param data: The data to pass to the handling function.
         """
         handler = f"on_{event}"
         if hasattr(self, handler):
@@ -77,24 +119,27 @@ class AsyncEventHandler(EventHandler):
 
     async def emit(
             self,
-            namespace: list | str | tuple,
             event: str,
-            *args,
+            data: Any = None,
+            to: dict | None = None,
+            room: str | None = None,
+            namespace: str | None = None,
             **kwargs
     ) -> None:
         """Emit an event to a single or multiple namespace(s)
 
-        :param namespace: The namespace(s) to which the event will be sent.
         :param event: The event name.
-        :param args: Optional arguments to be passed to the event handler.
-        :param kwargs: Optional key word arguments to be passed to the event
-                       handler.
+        :param data: The data to send to the required dispatcher.
+        :param to: The recipient of the message.
+        :param room: An alias to `to`
+        :param namespace: The namespace to which the event will be sent.
         """
-        if not self._dispatcher:
+        if self._dispatcher is None:
             raise RuntimeError(
                 "You need to register this EventHandler in order to use it"
             )
         if isinstance(namespace, str):
-            namespace = namespace.split(",")
-        for n in namespace:
-            await self._dispatcher.emit(n, event, *args, **kwargs)
+            namespace = namespace.strip("/")
+        namespace = namespace or self.namespace
+        room = to or room
+        await self._dispatcher.emit(event, data, to, room, namespace)

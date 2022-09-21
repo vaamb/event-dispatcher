@@ -45,10 +45,10 @@ class KombuDispatcher(Dispatcher):
         opts.update(self.exchange_opt)
         return kombu.Exchange(**opts)
 
-    def _queue(self):
+    def _queue(self, name):
         return kombu.Queue(
-            name=self.namespace, exchange=self._exchange(),
-            routing_key=self.namespace, durable=False
+            name=name, exchange=self._exchange(),
+            routing_key=name, durable=False
         )
 
     def _connection(self):
@@ -82,12 +82,12 @@ class KombuDispatcher(Dispatcher):
             producer, producer.publish, errback=self._error_callback
         )
         publish(
-            message, routing_key=namespace, declare=[self._queue()]
+            message, routing_key=namespace, declare=[self._queue(namespace)]
         )
 
     def _listen(self):
         while True:
-            reader_queue = self._queue()
+            reader_queue = self._queue(self.namespace)
             connection = self._connection().ensure_connection(
                 errback=self._error_callback
             )

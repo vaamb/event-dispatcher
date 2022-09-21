@@ -4,10 +4,11 @@ import asyncio
 from collections.abc import Callable
 import logging
 from threading import Event, Thread
+from typing import Any
 import uuid
 
 from .context_var_wrapper import ContextVarWrapper
-from .event_handler import EventHandler
+from .event_handler import AsyncEventHandler, EventHandler
 from .exceptions import StopEvent, UnknownEvent
 
 
@@ -43,13 +44,9 @@ class Dispatcher:
         self.event_handlers: set[EventHandler] = set()
         self.handlers: dict[str: Callable] = {}
         self._fallback = None
+        self._sessions = {}
 
-    def initialize(self) -> None:
-        """Method to call other methods just before starting the background thread.
-        """
-        pass
-
-    def _parse_payload(self, payload: dict) -> dict:
+    def _parse_payload(self, payload: dict | bytes) -> dict:
         """Method to parse the payload in case it was serialized before
         publishing.
         """
@@ -69,16 +66,6 @@ class Dispatcher:
             "This method needs to be implemented in a subclass"
         )
 
-    def generate_payload(self, event, room=None, *args, **kwargs) -> dict:
-        payload = {"event": event, "host_uid": self.host_uid}
-        if room:
-            payload.update({"room": room})
-        if args:
-            payload.update({"args": args})
-        if kwargs:
-            payload.update({"kwargs": kwargs})
-        return payload
-
     def _thread(self) -> None:
         while self._running.is_set():
             try:
@@ -87,11 +74,10 @@ class Dispatcher:
                     event = message["event"]
                     room = message.get("room", self.host_uid)
                     if room in self.rooms:
-                        remote_host_uid = message["host_uid"]
-                        args = message.get("args", ())
-                        kwargs = message.get("kwargs", {})
-                        context.sid = remote_host_uid
-                        self._trigger_event(event, *args, **kwargs)
+                        data = message.get("data")
+                        sid = message["host_uid"]
+                        context.sid = sid
+                        self._trigger_event(event, sid=sid, data=data)
                         del context.sid
             except StopEvent:
                 break
@@ -136,6 +122,24 @@ class Dispatcher:
     """
     API calls
     """
+    def initialize(self) -> None:
+        """Method to call other methods just before starting the background thread.
+        """
+        pass
+
+    def generate_payload(
+            self,
+            event: str,
+            room: str | None = None,
+            data: Any = None,
+    ) -> dict:
+        payload = {"event": event, "host_uid": self.host_uid}
+        if room:
+            payload.update({"room": room})
+        if data:
+            payload.update({"data": data})
+        return payload
+
     @property
     def fallback(self) -> Callable:
         return self._fallback
@@ -147,12 +151,31 @@ class Dispatcher:
         """
         self._fallback = fct
 
-    def join_room(self, room: str) -> None:
+    def enter_room(self, sid: str, room: str, namespace: str | None = None) -> None:
         self.rooms.add(room)
 
-    def leave_room(self, room: str) -> None:
+    def leave_room(self, sid: str, room: str, namespace: str | None = None) -> None:
         if room in self.rooms:
             self.rooms.remove(room)
+
+    def session(self, sid: str, namespace: str | None = None):
+        class _session_ctx_manager:
+            def __init__(self, dispatcher, sid, namespace):
+                self.dispatcher = dispatcher
+                self.sid = sid
+                self.namespace = namespace
+                self.session = None
+
+            def __enter__(self):
+                self.session = self.dispatcher._sessions.get(sid, {})
+
+            def __exit__(self, *args):
+                self.dispatcher._sessions[sid] = self.session
+
+        return _session_ctx_manager(self, sid, namespace)
+
+    def disconnect(self, sid: str, namespace: str | None = None) -> None:
+        pass  # TODO
 
     def register_event_handler(self, event_handler: EventHandler) -> None:
         """Register an event handler."""
@@ -168,7 +191,7 @@ class Dispatcher:
 
         :param event: The event name.
         :param handler: The method that will be used to handle the event. When
-                        skipped, the method acts as a decorator.
+                        skipped, this method acts as a decorator.
 
         Example:
             - As a method
@@ -194,27 +217,27 @@ class Dispatcher:
 
     def emit(
             self,
-            namespace: list | str | tuple,
             event: str,
+            data: Any = None,
+            to: dict | None = None,
             room: str | None = None,
-            *args,
+            namespace: str | None = None,
             **kwargs
     ) -> None:
         """Emit an event to a single or multiple namespace(s)
 
-        :param namespace: The namespace(s) to which the event will be sent.
         :param event: The event name.
-        :param room: The room to which the event should be sent. By default it
-                      will be sent to all rooms.
-        :param args: Optionnal arguments to be passed to the event handler.
-        :param kwargs: Optionnal key word arguments to be passed to the event
-                       handler.
+        :param data: The data to send to the required dispatcher.
+        :param to: The recipient of the message.
+        :param room: An alias to `to`
+        :param namespace: The namespace to which the event will be sent.
         """
         if isinstance(namespace, str):
-            namespace = namespace.split(",")
-        payload = self.generate_payload(event, room, *args, **kwargs)
-        for n in namespace:
-            self._publish(n, payload)
+            namespace = namespace.strip("/")
+        namespace = namespace or "root"
+        room = to or room
+        payload = self.generate_payload(event, room, data)
+        self._publish(namespace, payload)
 
     def start_background_task(self, target: Callable, *args) -> Thread:
         """Override to use another threading method"""
@@ -235,7 +258,7 @@ class Dispatcher:
 
     def stop(self) -> None:
         """Stop to dispatch events."""
-        self.emit(self.namespace, STOP_SIGNAL)
+        self.emit(event=STOP_SIGNAL, namespace=self.namespace)
         for thread in self.threads:
             self.threads[thread].join()
 
@@ -278,11 +301,10 @@ class AsyncDispatcher(Dispatcher):
                     event = message["event"]
                     room = message.get("room", self.host_uid)
                     if room in self.rooms:
-                        remote_host_uid = message["host_uid"]
-                        args = message.get("args", ())
-                        kwargs = message.get("kwargs", {})
-                        context.sid = remote_host_uid
-                        await self._trigger_event(event, *args, **kwargs)
+                        data = message.get("data")
+                        sid = message["host_uid"]
+                        context.sid = sid
+                        await self._trigger_event(event, sid, data)
                         del context.sid
             except StopEvent:
                 break
@@ -325,7 +347,13 @@ class AsyncDispatcher(Dispatcher):
         """
         pass
 
-    def register_event_handler(self, event_handler: EventHandler) -> None:
+    async def session(self, sid: str, namespace: str | None = None):
+        return super().session(sid, namespace)
+
+    async def disconnect(self, sid: str, namespace: str | None = None) -> None:
+        pass  # TODO
+
+    def register_event_handler(self, event_handler: AsyncEventHandler) -> None:
         """Register an event handler."""
         if not event_handler.asyncio_based:
             raise RuntimeError(
@@ -336,27 +364,27 @@ class AsyncDispatcher(Dispatcher):
 
     async def emit(
             self,
-            namespace: list | str | tuple,
             event: str,
-            *args,
-            room: str = None,
+            data: Any = None,
+            to: dict | None = None,
+            room: str | None = None,
+            namespace: str | None = None,
             **kwargs
     ) -> None:
         """Emit an event to a single or multiple namespace(s)
 
-        :param namespace: The namespace(s) to which the event will be sent.
         :param event: The event name.
-        :param room: The room to which the event should be sent. By default it
-                      will be sent to all rooms.
-        :param args: Optionnal arguments to be passed to the event handler.
-        :param kwargs: Optionnal key word arguments to be passed to the event
-                       handler.
+        :param data: The data to send to the required dispatcher.
+        :param to: The recipient of the message.
+        :param room: An alias to `to`
+        :param namespace: The namespace to which the event will be sent.
         """
         if isinstance(namespace, str):
-            namespace = namespace.split(",")
-        payload = self.generate_payload(event, room, *args, **kwargs)
-        for n in namespace:
-            await self._publish(n, payload)
+            namespace = namespace.strip("/")
+        namespace = namespace or "root"
+        room = to or room
+        payload = self.generate_payload(event, room, data)
+        await self._publish(namespace, payload)
 
     def start_background_task(self, target: Callable, *args, **kwargs):
         """Override to use another threading method"""
@@ -373,4 +401,6 @@ class AsyncDispatcher(Dispatcher):
 
     def stop(self) -> None:
         """Stop to dispatch events."""
-        asyncio.ensure_future(self.emit(self.namespace, STOP_SIGNAL))
+        asyncio.ensure_future(
+            self.emit(event=STOP_SIGNAL, namespace=self.namespace)
+        )
