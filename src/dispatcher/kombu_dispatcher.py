@@ -65,7 +65,7 @@ class KombuDispatcher(Dispatcher):
                 f"`{e.__class__.__name__}: {e}`."
             )
         else:
-            self._trigger_event("connect")
+            self._handle_connect()
 
     def _error_callback(self, exception, interval):
         self.logger.exception(f"Sleeping {interval}s")

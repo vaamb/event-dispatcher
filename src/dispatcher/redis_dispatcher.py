@@ -46,7 +46,7 @@ class RedisDispatcher(Dispatcher):
                 f"`{e.__class__.__name__}: {e}`."
             )
         else:
-            self._trigger_event("connect")
+            self._handle_connect()
 
     def _publish(self, namespace: str, payload: bytes) -> int:
         return self.redis.publish(namespace, payload)

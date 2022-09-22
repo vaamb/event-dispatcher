@@ -44,6 +44,15 @@ class AsyncRedisDispatcher(AsyncDispatcher):
         self.redis_url = url
         super().__init__(namespace=namespace, parent_logger=parent_logger)
 
+    async def _publish(self, namespace: str, payload: bytes) -> int:
+        return await self.redis.publish(namespace, payload)
+
+    async def _listen(self):
+        self.pubsub.subscribe(self.namespace)
+        for message in await self.pubsub.listen():
+            if "data" in message:
+                yield message["data"]
+
     def initialize(self) -> None:
         try:
             self.redis = aioredis.Redis.from_url(self.redis_url,
@@ -55,14 +64,4 @@ class AsyncRedisDispatcher(AsyncDispatcher):
                 f"`{e.__class__.__name__}: {e}`."
             )
         else:
-            loop = asyncio.get_event_loop()
-            loop.create_task(self._trigger_event("connect"))
-
-    async def _publish(self, namespace: str, payload: bytes) -> int:
-        return await self.redis.publish(namespace, payload)
-
-    async def _listen(self):
-        self.pubsub.subscribe(self.namespace)
-        for message in await self.pubsub.listen():
-            if "data" in message:
-                yield message["data"]
+            asyncio.ensure_future(self._handle_connect())

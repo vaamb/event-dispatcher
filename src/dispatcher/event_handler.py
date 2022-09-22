@@ -3,6 +3,8 @@ from __future__ import annotations
 import typing as t
 from typing import Any
 
+from .exceptions import UnknownEvent
+
 
 if t.TYPE_CHECKING:
     from .ABC import AsyncDispatcher, Dispatcher
@@ -49,16 +51,21 @@ class EventHandler:
         namespace = namespace or self.namespace
         self._dispatcher.disconnect(sid, namespace)
 
+    def get_handler(self, event: str):
+        handler = f"on_{event}"
+        if hasattr(self, handler):
+            return getattr(self, handler)
+        return None
+
     def trigger_event(self, event: str, *args, **kwargs):
         """Dispatch an event to the correct handler method.
 
         :param event: The name of the event to handle.
-        :param data: The data to pass to the handling function.
         """
-        handler = f"on_{event}"
-        if hasattr(self, handler):
-            return getattr(self, handler)(*args, **kwargs)
-        return "__not_triggered__"
+        handler = self.get_handler(event)
+        if handler:
+            return handler(*args, **kwargs)
+        raise UnknownEvent
 
     def emit(
             self,
@@ -110,12 +117,11 @@ class AsyncEventHandler(EventHandler):
         """Dispatch an event to the correct handler method.
 
         :param event: The name of the event to handle.
-        :param data: The data to pass to the handling function.
         """
-        handler = f"on_{event}"
-        if hasattr(self, handler):
-            return await getattr(self, handler)(*args, **kwargs)
-        return "__not_triggered__"
+        handler = self.get_handler(event)
+        if handler:
+            return handler(*args, **kwargs)
+        raise UnknownEvent
 
     async def emit(
             self,

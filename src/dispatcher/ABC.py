@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+import inspect
 import logging
 from threading import Event, Thread
 from typing import Any, AsyncIterable, Iterable
@@ -59,18 +60,29 @@ class Dispatcher:
             "This method needs to be implemented in a subclass"
         )
 
+    def _format_data(self, data) -> list:
+        if isinstance(data, tuple):
+            return list(data)
+        if data is None:
+            return []
+        return [data]
+
     def _thread(self) -> None:
         while self._running.is_set():
             try:
                 for payload in self._listen():
-                    message = Serializer.loads(payload)
+                    if isinstance(payload, dict):
+                        message = payload
+                    else:
+                        message = Serializer.loads(payload)
                     event = message["event"]
-                    room = message.get("room", self.host_uid)
+                    room = self.host_uid  # TODO: fix  message.get("room", self.host_uid)
                     if room in self.rooms:
-                        data = message.get("data")
                         sid = message["host_uid"]
                         context.sid = sid
-                        self._trigger_event(event, sid=sid, data=data)
+                        data = message.get("data")
+                        data: list = self._format_data(data)
+                        self._trigger_event(event, sid, *data)
                         del context.sid
             except StopEvent:
                 break
@@ -84,28 +96,43 @@ class Dispatcher:
         self._running.clear()
         raise StopEvent
 
+    def _handle_connect(self):
+        return self._trigger_event(
+            "connect", "sid", {"REMOTE_ADDR": self.namespace}
+        )
+
+    def _handle_disconnect(self):
+        return self._trigger_event("disconnect", "sid")
+
+    def _get_event_handler(self, event: str):
+        if event in self.handlers:
+            return self.handlers[event]
+        elif self.event_handlers:
+            for e in self.event_handlers:
+                event_handler = e.get_handler(event)
+                if event_handler is not None:
+                    return event_handler
+        if self._fallback is not None:
+            return self._fallback
+        raise UnknownEvent(
+            f"Received unknown event '{event}' and no fallback function set"
+        )
+
     def _trigger_event(
             self,
             event: str,
+            sid: str,
             *args,
-            **kwargs
     ) -> None:
         try:
             if event == STOP_SIGNAL:
                 return self._stop_signal_handler()
-            elif event in self.handlers:
-                return self.handlers[event](*args, **kwargs)
-            elif self.event_handlers:
-                for e in self.event_handlers:
-                    event_return = e.trigger_event(event, *args, **kwargs)
-                    if event_return != "__not_triggered__":
-                        return event_return
-            if self._fallback:
-                return self._fallback(*args, **kwargs)
             else:
-                raise UnknownEvent(
-                    f"Received unknown event '{event}' and no fallback function set"
-                )
+                event_handler = self._get_event_handler(event)
+                signature = inspect.signature(event_handler)
+                if "sid" in signature.parameters.keys():
+                    return event_handler(sid, *args)
+                return event_handler(*args)
         except Exception as e:
             self.logger.debug(
                 f"Encountered an error while handling event '{event}'. Error "
@@ -161,6 +188,7 @@ class Dispatcher:
 
             def __enter__(self):
                 self.session = self.dispatcher._sessions.get(sid, {})
+                return self.session
 
             def __exit__(self, *args):
                 self.dispatcher._sessions[sid] = self.session
@@ -283,14 +311,18 @@ class AsyncDispatcher(Dispatcher):
         while self._running.is_set():
             try:
                 async for payload in self._listen():
-                    message = Serializer.loads(payload)
+                    if isinstance(payload, dict):
+                        message = payload
+                    else:
+                        message = Serializer.loads(payload)
                     event = message["event"]
-                    room = message.get("room", self.host_uid)
+                    room = self.host_uid  # TODO: fix  message.get("room", self.host_uid)
                     if room in self.rooms:
-                        data = message.get("data")
                         sid = message["host_uid"]
                         context.sid = sid
-                        await self._trigger_event(event, sid, data)
+                        data = message.get("data")
+                        data: list = self._format_data(data)
+                        await self._trigger_event(event, sid, *data)
                         del context.sid
             except StopEvent:
                 break
@@ -300,28 +332,39 @@ class AsyncDispatcher(Dispatcher):
                     f"`{e.__class__.__name__}: {e}`"
                 )
 
+    async def _handle_connect(self):
+        return await self._trigger_event(
+            "connect", "sid", {"REMOTE_ADDR": self.namespace}
+        )
+
+    async def _handle_disconnect(self):
+        return await self._trigger_event("disconnect", "sid")
+
     async def _trigger_event(
             self,
             event: str,
+            sid: str,
             *args,
-            **kwargs
     ) -> None:
         try:
             if event == STOP_SIGNAL:
                 return self._stop_signal_handler()
-            elif event in self.handlers:
-                return await self.handlers[event](*args, **kwargs)
-            elif self.event_handlers:
-                for e in self.event_handlers:
-                    event_return = e.trigger_event(event, *args, **kwargs)
-                    if event_return != "__not_triggered__":
-                        return await event_return
-            if self._fallback:
-                return await self._fallback(*args, **kwargs)
             else:
-                raise UnknownEvent(
-                    f"Received unknown event '{event}' and no fallback function set"
-                )
+                event_handler = self._get_event_handler(event)
+                signature = inspect.signature(event_handler)
+                need_sid = "sid" in signature.parameters.keys()
+                if asyncio.iscoroutinefunction(event_handler) is True:
+                    try:
+                        if need_sid:
+                            return await event_handler(sid, *args)
+                        return await event_handler(*args)
+                    except asyncio.CancelledError:
+                        return None
+                else:
+                    if need_sid:
+                        return event_handler(sid, *args)
+                    return event_handler(*args)
+
         except Exception as e:
             self.logger.debug(
                 f"Encountered an error while handling event '{event}'. Error "
@@ -343,6 +386,7 @@ class AsyncDispatcher(Dispatcher):
 
             async def __aenter__(self):
                 self.session = self.dispatcher._sessions.get(sid, {})
+                return self.session
 
             async def __aexit__(self, *args):
                 self.dispatcher._sessions[sid] = self.session

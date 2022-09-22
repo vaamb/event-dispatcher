@@ -27,7 +27,7 @@ class BaseDispatcher(Dispatcher):
         super().__init__(namespace, parent_logger)
 
     def initialize(self) -> None:
-        self._trigger_event("connect")
+        self._handle_connect()
 
     def _publish(self, namespace: str, payload: dict) -> int:
         return self.pubsub.publish(namespace, payload)

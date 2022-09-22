@@ -27,10 +27,6 @@ class AsyncBaseDispatcher(AsyncDispatcher):
         self.pubsub = AsyncPubSub()
         super().__init__(namespace, parent_logger)
 
-    def initialize(self) -> None:
-        loop = asyncio.get_event_loop()
-        loop.create_task(self._trigger_event("connect"))
-
     async def _publish(self, namespace: str, payload: dict) -> int:
         return await self.pubsub.publish(namespace, payload)
 
@@ -38,3 +34,6 @@ class AsyncBaseDispatcher(AsyncDispatcher):
         self.pubsub.subscribe(self.namespace)
         async for message in self.pubsub.listen():
             yield message
+
+    def initialize(self) -> None:
+        asyncio.ensure_future(self._handle_connect())

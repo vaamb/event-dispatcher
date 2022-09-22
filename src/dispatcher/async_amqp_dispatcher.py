@@ -58,5 +58,4 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
                 self.logger.exception("Connection error while reading from queue")
 
     def initialize(self) -> None:
-        loop = asyncio.get_event_loop()
-        loop.create_task(self._trigger_event("connect"))
+        asyncio.ensure_future(self._handle_connect())
