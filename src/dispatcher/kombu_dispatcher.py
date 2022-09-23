@@ -29,7 +29,8 @@ class KombuDispatcher(Dispatcher):
             namespace: str,
             url: str = "memory://",
             parent_logger: logging.Logger = None,
-            exchange_opt: dict = None
+            exchange_options: dict = None,
+            queue_options: dict = None,
     ) -> None:
         if kombu is None:
             raise RuntimeError(
@@ -37,23 +38,27 @@ class KombuDispatcher(Dispatcher):
             )
         super(KombuDispatcher, self).__init__(namespace, parent_logger)
         self.url = url
-        self.exchange_opt = exchange_opt or {}
+        self.exchange_options = exchange_options or {}
+        self.queue_options = queue_options or {}
 
-    def _exchange(self):
-        opts = {"type": "direct", "durable": False}
-        opts.update(self.exchange_opt)
-        return kombu.Exchange(**opts)
+    def _exchange(self) -> "kombu.Exchange":
+        options = {"durable": False}
+        options.update({**self.exchange_options})
+        name = options.pop("name", "dispatcher")
+        return kombu.Exchange(name, **options)
 
-    def _queue(self, name):
+    def _queue(self) -> "kombu.Queue":
+        options = {**self.queue_options}
+        name = options.pop("name", self.namespace)
         return kombu.Queue(
             name=name, exchange=self._exchange(),
-            routing_key=name, durable=False
+            routing_key=self.namespace
         )
 
-    def _connection(self):
+    def _connection(self) -> "kombu.Connection":
         return kombu.Connection(self.url)
 
-    def _producer(self):
+    def _producer(self) -> "kombu.Producer":
         return self._connection().Producer(exchange=self._exchange())
 
     def initialize(self):
@@ -76,23 +81,21 @@ class KombuDispatcher(Dispatcher):
         publish = connection.ensure(
             producer, producer.publish, errback=self._error_callback
         )
-        publish(
-            payload, routing_key=namespace, declare=[self._queue(namespace)]
-        )
+        publish(payload, routing_key=namespace, declare=[self._queue])
 
     def _listen(self):
-        while True:
-            reader_queue = self._queue(self.namespace)
-            connection = self._connection().ensure_connection(
-                errback=self._error_callback
-            )
+        reader_queue = self._queue()
+        connection = self._connection().ensure_connection(
+            errback=self._error_callback
+        )
+        while self._running.is_set():
             try:
                 with connection.SimpleQueue(reader_queue) as queue:
                     while True:
                         message = queue.get(block=True)
                         message.ack()
                         yield message.payload
-            except connection.connection_errors:
+            except Exception as e:
                 self.logger.exception(
-                    "Connection error while reading from queue"
+                    f"Error while reading from queue. Error msg: {e.args}"
                 )

@@ -1,29 +1,44 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timezone
-import json
 import pickle
 from typing import Any
 import uuid
+import warnings
 
 try:
     import orjson
 except ImportError:
+    warnings.warn("The dispatcher could be faster if orjson was installed")
+
     orjson = None
+    import json
 
+    def _serializer(o) -> str:
+        if isinstance(o, datetime):
+            return o.replace(tzinfo=timezone.utc).isoformat(timespec="seconds")
+        if isinstance(o, date):
+            return o.isoformat()
+        if isinstance(o, time):
+            return (
+                datetime.combine(date.today(), o).replace(tzinfo=timezone.utc)
+                .isoformat(timespec="seconds")
+            )
+        if isinstance(o, uuid.UUID):
+            return str(o)
 
-def _json_serializer(o) -> str:
-    if isinstance(o, datetime):
-        return o.replace(tzinfo=timezone.utc).isoformat(timespec="seconds")
-    if isinstance(o, date):
-        return o.isoformat()
-    if isinstance(o, time):
-        return (
-            datetime.combine(date.today(), o).replace(tzinfo=timezone.utc)
-            .isoformat(timespec="seconds")
-        )
-    if isinstance(o, uuid.UUID):
-        return str(o)
+    def json_dumps(obj: Any) -> bytes:
+        str_obj: str = json.dumps(obj, default=_serializer)
+        return str_obj.encode("utf8")
+
+    def json_loads(obj: bytes | str) -> Any:
+        return json.loads(obj)
+else:
+    def json_dumps(obj: Any) -> bytes:
+        return orjson.dumps(obj)
+
+    def json_loads(obj: bytes | str) -> Any:
+        return orjson.loads(obj)
 
 
 class Serializer:
@@ -31,19 +46,11 @@ class Serializer:
     def dumps(obj: Any) -> bytes:
         if isinstance(obj, bytes):
             return pickle.dumps(obj)
-        if orjson:
-            return orjson.dumps(obj)
-        else:
-            str_obj: str = json.dumps(obj, default=_json_serializer)
-            return str_obj.encode("utf8")
+        return json_dumps(obj)
 
     @staticmethod
-    def loads(obj: bytes) -> Any:
+    def loads(obj: bytes | str) -> Any:
         try:
             return pickle.loads(obj)
-        except pickle.UnpicklingError:
-            if orjson:
-                return orjson.loads(obj)
-            else:
-                str_obj = obj.decode("utf8")
-                return json.loads(str_obj)
+        except (pickle.UnpicklingError, TypeError):
+            return json_loads(obj)

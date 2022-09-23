@@ -32,8 +32,14 @@ class AsyncBaseDispatcher(AsyncDispatcher):
 
     async def _listen(self):
         self.pubsub.subscribe(self.namespace)
-        async for message in self.pubsub.listen():
-            yield message
+        while self._running.is_set():
+            try:
+                async for message in self.pubsub.listen():
+                    yield message
+            except Exception as e:
+                self.logger.exception(
+                    f"Error while reading from queue. Error msg: {e.args}"
+                )
 
     def initialize(self) -> None:
         asyncio.ensure_future(self._handle_connect())

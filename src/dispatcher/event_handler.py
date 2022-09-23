@@ -120,7 +120,7 @@ class AsyncEventHandler(EventHandler):
         """
         handler = self.get_handler(event)
         if handler:
-            return handler(*args, **kwargs)
+            return await handler(*args, **kwargs)
         raise UnknownEvent
 
     async def emit(

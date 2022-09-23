@@ -14,22 +14,30 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
             self,
             namespace: str,
             url: str = "amqp://guest:guest@localhost:5672//",
-            parent_logger: logging.Logger = None
+            parent_logger: logging.Logger = None,
+            exchange_options: dict = None,
+            queue_options: dict = None,
     ) -> None:
-        self.url = url
         super().__init__(namespace=namespace, parent_logger=parent_logger)
+        self.url = url
+        self.exchange_options = exchange_options or {}
+        self.queue_options = queue_options or {}
 
-    async def _connection(self):
+    async def _connection(self) -> "aio_pika.RobustConnection":
         return await aio_pika.connect_robust(self.url)
 
-    async def _channel(self, connection):
+    async def _channel(self, connection) -> "aio_pika.Channel":
         return await connection.channel()
 
-    async def _exchange(self, channel):
-        return await channel.declare_exchange("ouranos")
+    async def _exchange(self, channel) -> "aio_pika.Exchange":
+        options = {**self.exchange_options}
+        name = options.pop("name", "dispatcher")
+        return await channel.declare_exchange(name, **options)
 
-    async def _queue(self, channel, exchange):
-        queue = await channel.declare_queue(name=self.namespace)
+    async def _queue(self, channel, exchange) -> "aio_pika.Queue":
+        options = {**self.queue_options}
+        name = options.pop("name", self.namespace)
+        queue = await channel.declare_queue(name, **options)
         await queue.bind(exchange, routing_key=self.namespace)
         return queue
 
@@ -44,18 +52,20 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
         )
 
     async def _listen(self):
-        while True:
+        connection = await self._connection()
+        channel = await self._channel(connection)
+        exchange = await self._exchange(channel)
+        queue = await self._queue(channel, exchange)
+        while self._running.is_set():
             try:
-                connection = await self._connection()
-                channel = await self._channel(connection)
-                exchange = await self._exchange(channel)
-                queue = await self._queue(channel, exchange)
                 async with queue.iterator() as queue_iter:
                     async for message in queue_iter:
                         async with message.process():
                             yield message.body
-            except Exception:
-                self.logger.exception("Connection error while reading from queue")
+            except Exception as e:
+                self.logger.exception(
+                    f"Error while reading from queue. Error msg: {e.args}"
+                )
 
     def initialize(self) -> None:
         asyncio.ensure_future(self._handle_connect())

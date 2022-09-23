@@ -53,6 +53,12 @@ class RedisDispatcher(Dispatcher):
 
     def _listen(self):
         self.pubsub.subscribe(self.namespace)
-        for message in self.pubsub.listen():
-            if "data" in message:
-                yield message["data"]
+        while self._running.is_set():
+            try:
+                for message in self.pubsub.listen():
+                    if "data" in message:
+                        yield message["data"]
+            except Exception as e:
+                self.logger.exception(
+                    f"Error while reading from queue. Error msg: {e.args}"
+                )
