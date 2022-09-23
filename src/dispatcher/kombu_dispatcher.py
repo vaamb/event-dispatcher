@@ -51,8 +51,8 @@ class KombuDispatcher(Dispatcher):
         options = {**self.queue_options}
         name = options.pop("name", self.namespace)
         return kombu.Queue(
-            name=name, exchange=self._exchange(),
-            routing_key=self.namespace
+            name=name, exchange=self._exchange(), routing_key=self.namespace,
+            **options
         )
 
     def _connection(self) -> "kombu.Connection":
