@@ -40,6 +40,13 @@ class KombuDispatcher(Dispatcher):
         self.url = url
         self.exchange_options = exchange_options or {}
         self.queue_options = queue_options or {}
+        self.producer = self._producer()
+
+    def _connection(self) -> "kombu.Connection":
+        return kombu.Connection(self.url)
+
+    def _channel(self, connection):
+        return connection.channel()
 
     def _exchange(self) -> "kombu.Exchange":
         options = {"durable": False}
@@ -47,16 +54,22 @@ class KombuDispatcher(Dispatcher):
         name = options.pop("name", "dispatcher")
         return kombu.Exchange(name, **options)
 
-    def _queue(self) -> "kombu.Queue":
+    def _queue(self, exchange) -> "kombu.Queue":
         options = {**self.queue_options}
         name = options.pop("name", self.namespace)
+        routing_keys = [name]
+        extra_routing_keys = options.pop("extra_routing_keys", [])
+        if isinstance(extra_routing_keys, str):
+            extra_routing_keys = [extra_routing_keys]
+        routing_keys += extra_routing_keys
+        if name != self.namespace:
+            routing_keys += [self.namespace]
         return kombu.Queue(
-            name=name, exchange=self._exchange(), routing_key=self.namespace,
-            **options
+            name=name, bindings=[
+                kombu.binding(exchange, routing_key=key)
+                for key in routing_keys
+            ], **options
         )
-
-    def _connection(self) -> "kombu.Connection":
-        return kombu.Connection(self.url)
 
     def _producer(self) -> "kombu.Producer":
         return self._connection().Producer(exchange=self._exchange())
@@ -77,14 +90,13 @@ class KombuDispatcher(Dispatcher):
 
     def _publish(self, namespace: str, payload: bytes):
         connection = self._connection()
-        producer = self._producer()
         publish = connection.ensure(
-            producer, producer.publish, errback=self._error_callback
+            self.producer, self.producer.publish, errback=self._error_callback
         )
-        publish(payload, routing_key=namespace, declare=[self._queue])
+        publish(payload, routing_key=namespace)
 
     def _listen(self):
-        reader_queue = self._queue()
+        reader_queue = self._queue(self._exchange())
         connection = self._connection().ensure_connection(
             errback=self._error_callback
         )

@@ -26,15 +26,17 @@ class RedisDispatcher(Dispatcher):
             namespace: str,
             url: str = "redis://localhost:6379/0",
             redis_options: dict = None,
-            parent_logger: logging.Logger = None
+            parent_logger: logging.Logger = None,
+            queue_options: dict = None,
     ) -> None:
         if redis is None:
             raise RuntimeError(
                 "Install 'redis' package to use RedisDispatcher"
         )
+        super().__init__(namespace=namespace, parent_logger=parent_logger)
         self.redis_options = redis_options or {}
         self.redis_url = url
-        super().__init__(namespace=namespace, parent_logger=parent_logger)
+        self.queue_options = queue_options or {}
 
     def initialize(self) -> None:
         try:
@@ -52,7 +54,16 @@ class RedisDispatcher(Dispatcher):
         return self.redis.publish(namespace, payload)
 
     def _listen(self):
-        self.pubsub.subscribe(self.namespace)
+        options = {**self.queue_options}
+        name = options.pop("name", self.namespace)
+        extra_routing_keys = options.pop("extra_routing_keys", [])
+        self.pubsub.subscribe(name)
+        if isinstance(extra_routing_keys, str):
+            extra_routing_keys = [extra_routing_keys]
+        if name != self.namespace:
+            extra_routing_keys.append(name)
+        for key in extra_routing_keys:
+            self.pubsub.subscribe(key)
         while self._running.is_set():
             try:
                 for message in self.pubsub.listen():

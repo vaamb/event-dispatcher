@@ -32,7 +32,8 @@ class AsyncRedisDispatcher(AsyncDispatcher):
             namespace: str,
             url: str = "redis://localhost:6379/0",
             redis_options: dict = None,
-            parent_logger: logging.Logger = None
+            parent_logger: logging.Logger = None,
+            queue_options: dict = None,
     ) -> None:
         if aioredis is None:
             raise RuntimeError(
@@ -40,24 +41,10 @@ class AsyncRedisDispatcher(AsyncDispatcher):
             )
         if not hasattr(aioredis.Redis, "from_url"):
             raise RuntimeError("Version 2 of aioredis package is required.")
+        super().__init__(namespace=namespace, parent_logger=parent_logger)
         self.redis_options = redis_options or {}
         self.redis_url = url
-        super().__init__(namespace=namespace, parent_logger=parent_logger)
-
-    async def _publish(self, namespace: str, payload: bytes) -> int:
-        return await self.redis.publish(namespace, payload)
-
-    async def _listen(self):
-        self.pubsub.subscribe(self.namespace)
-        while self._running.is_set():
-            try:
-                async for message in self.pubsub.listen():
-                    if "data" in message:
-                        yield message["data"]
-            except Exception as e:
-                self.logger.exception(
-                    f"Error while reading from queue. Error msg: {e.args}"
-                )
+        self.queue_options = queue_options or {}
 
     def initialize(self) -> None:
         try:
@@ -71,3 +58,27 @@ class AsyncRedisDispatcher(AsyncDispatcher):
             )
         else:
             asyncio.ensure_future(self._handle_connect())
+
+    async def _publish(self, namespace: str, payload: bytes) -> int:
+        return await self.redis.publish(namespace, payload)
+
+    async def _listen(self):
+        options = {**self.queue_options}
+        name = options.pop("name", self.namespace)
+        extra_routing_keys = options.pop("extra_routing_keys", [])
+        self.pubsub.subscribe(name)
+        if isinstance(extra_routing_keys, str):
+            extra_routing_keys = [extra_routing_keys]
+        if name != self.namespace:
+            extra_routing_keys.append(name)
+        for key in extra_routing_keys:
+            self.pubsub.subscribe(key)
+        while self._running.is_set():
+            try:
+                async for message in self.pubsub.listen():
+                    if "data" in message:
+                        yield message["data"]
+            except Exception as e:
+                self.logger.exception(
+                    f"Error while reading from queue. Error msg: {e.args}"
+                )

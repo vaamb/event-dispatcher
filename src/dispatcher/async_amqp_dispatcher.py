@@ -18,6 +18,10 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
             exchange_options: dict = None,
             queue_options: dict = None,
     ) -> None:
+        if aio_pika is None:
+            raise RuntimeError(
+                "Install 'aio_pika' package to use AsyncAMQPDispatcher"
+            )
         super().__init__(namespace=namespace, parent_logger=parent_logger)
         self.url = url
         self.exchange_options = exchange_options or {}
@@ -37,8 +41,15 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
     async def _queue(self, channel, exchange) -> "aio_pika.Queue":
         options = {**self.queue_options}
         name = options.pop("name", self.namespace)
+        extra_routing_keys = options.pop("extra_routing_keys", [])
         queue = await channel.declare_queue(name, **options)
         await queue.bind(exchange, routing_key=self.namespace)
+        if isinstance(extra_routing_keys, str):
+            extra_routing_keys = [extra_routing_keys]
+        if name != self.namespace:
+            extra_routing_keys.append(name)
+        for key in extra_routing_keys:
+            await queue.bind(exchange, routing_key=key)
         return queue
 
     async def _publish(self, namespace: str, payload: bytes):
