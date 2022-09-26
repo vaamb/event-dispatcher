@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 
@@ -27,7 +29,8 @@ class AsyncBaseDispatcher(AsyncDispatcher):
         self.pubsub = AsyncPubSub()
         super().__init__(namespace, parent_logger)
 
-    async def _publish(self, namespace: str, payload: dict) -> int:
+    async def _publish(self, namespace: str, payload: bytes,
+                       ttl: int | None = None) -> int:
         return await self.pubsub.publish(namespace, payload)
 
     async def _listen(self):

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 
 from ._pubsub import StupidPubSub
@@ -29,7 +31,8 @@ class BaseDispatcher(Dispatcher):
     def initialize(self) -> None:
         self._handle_connect()
 
-    def _publish(self, namespace: str, payload: dict) -> int:
+    def _publish(self, namespace: str, payload: dict,
+                 ttl: int | None = None) -> int:
         return self.pubsub.publish(namespace, payload)
 
     def _listen(self):

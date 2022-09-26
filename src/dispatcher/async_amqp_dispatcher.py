@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 
@@ -52,13 +54,16 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
             await queue.bind(exchange, routing_key=key)
         return queue
 
-    async def _publish(self, namespace: str, payload: bytes):
+    async def _publish(self, namespace: str, payload: bytes,
+                       ttl: int | None = None) -> None:
         connection = await self._connection()
         channel = await self._channel(connection)
         exchange = await self._exchange(channel)
         await exchange.publish(
-            aio_pika.Message(body=payload,
-                             delivery_mode=aio_pika.DeliveryMode.PERSISTENT),
+            aio_pika.Message(
+                body=payload, delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                expiration=ttl,
+            ),
             routing_key=namespace
         )
 

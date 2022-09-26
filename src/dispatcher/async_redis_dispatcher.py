@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 
@@ -59,7 +61,8 @@ class AsyncRedisDispatcher(AsyncDispatcher):
         else:
             asyncio.ensure_future(self._handle_connect())
 
-    async def _publish(self, namespace: str, payload: bytes) -> int:
+    async def _publish(self, namespace: str, payload: bytes,
+                       ttl: int | None = None) -> int:
         return await self.redis.publish(namespace, payload)
 
     async def _listen(self):

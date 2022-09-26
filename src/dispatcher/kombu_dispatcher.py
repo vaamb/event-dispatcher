@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 
 try:
@@ -88,12 +90,13 @@ class KombuDispatcher(Dispatcher):
     def _error_callback(self, exception, interval):
         self.logger.exception(f"Sleeping {interval}s")
 
-    def _publish(self, namespace: str, payload: bytes):
+    def _publish(self, namespace: str, payload: bytes,
+                 ttl: int | None = None):
         connection = self._connection()
         publish = connection.ensure(
             self.producer, self.producer.publish, errback=self._error_callback
         )
-        publish(payload, routing_key=namespace)
+        publish(payload, routing_key=namespace, expiration=ttl)
 
     def _listen(self):
         reader_queue = self._queue(self._exchange())

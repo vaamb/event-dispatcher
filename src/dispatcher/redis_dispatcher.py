@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 
 try:
@@ -50,7 +52,8 @@ class RedisDispatcher(Dispatcher):
         else:
             self._handle_connect()
 
-    def _publish(self, namespace: str, payload: bytes) -> int:
+    def _publish(self, namespace: str, payload: bytes,
+                 ttl: int | None = None) -> int:
         return self.redis.publish(namespace, payload)
 
     def _listen(self):

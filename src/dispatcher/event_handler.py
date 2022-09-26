@@ -74,6 +74,7 @@ class EventHandler:
             to: dict | None = None,
             room: str | None = None,
             namespace: str | None = None,
+            ttl: int | None = None,
             **kwargs
     ) -> None:
         """Emit an event to a single or multiple namespace(s)
@@ -83,6 +84,7 @@ class EventHandler:
         :param to: The recipient of the message.
         :param room: An alias to `to`
         :param namespace: The namespace to which the event will be sent.
+        :param ttl: Time to live of the message. Only available with rabbitmq
         """
         if self._dispatcher is None:
             raise RuntimeError(
@@ -92,7 +94,7 @@ class EventHandler:
             namespace = namespace.strip("/")
         namespace = namespace or self.namespace
         room = to or room
-        self._dispatcher.emit(event, data, to, room, namespace)
+        self._dispatcher.emit(event, data, to, room, namespace, ttl, **kwargs)
 
 
 class AsyncEventHandler(EventHandler):
@@ -130,6 +132,7 @@ class AsyncEventHandler(EventHandler):
             to: dict | None = None,
             room: str | None = None,
             namespace: str | None = None,
+            ttl: int | None = None,
             **kwargs
     ) -> None:
         """Emit an event to a single or multiple namespace(s)
@@ -139,6 +142,7 @@ class AsyncEventHandler(EventHandler):
         :param to: The recipient of the message.
         :param room: An alias to `to`
         :param namespace: The namespace to which the event will be sent.
+        :param ttl: Time to live of the message. Only available with rabbitmq
         """
         if self._dispatcher is None:
             raise RuntimeError(
@@ -148,4 +152,4 @@ class AsyncEventHandler(EventHandler):
             namespace = namespace.strip("/")
         namespace = namespace or self.namespace
         room = to or room
-        await self._dispatcher.emit(event, data, to, room, namespace)
+        await self._dispatcher.emit(event, data, to, room, namespace, ttl, **kwargs)

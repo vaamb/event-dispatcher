@@ -1,5 +1,7 @@
 """A simple in-memory pub_sub message broker to be used by the dispatcher."""
 
+from __future__ import annotations
+
 import asyncio
 from queue import Queue
 from typing import Iterable, AsyncIterable
@@ -12,7 +14,7 @@ class Broker:
     def link(self, client: "StupidPubSub") -> None:
         self.clients.add(client)
 
-    def push(self, payload: dict) -> int:
+    def push(self, payload: dict | bytes) -> int:
         pushed = 0
         for client in self.clients:
             if payload["namespace"] in client.channels:
@@ -23,7 +25,7 @@ class Broker:
 
 
 class AsyncBroker(Broker):
-    async def push(self, payload: dict) -> int:
+    async def push(self, payload: dict | bytes) -> int:
         pushed = 0
         self.clients: set["AsyncPubSub"]
         for client in self.clients:
@@ -60,7 +62,7 @@ class StupidPubSub:
         else:
             self.channels.clear()
 
-    def publish(self, channel: str, message: dict) -> int:
+    def publish(self, channel: str, message: dict | bytes) -> int:
         payload = {"namespace": channel, "data": message}
         published = self.broker.push(payload)
         return published
@@ -83,7 +85,7 @@ class AsyncPubSub(StupidPubSub):
         super().__init__(broker)
         self.messages = asyncio.Queue()
 
-    async def publish(self, channel: str, message: dict) -> int:
+    async def publish(self, channel: str, message: dict | bytes) -> int:
         payload = {"namespace": channel, "data": message}
         published = await self.broker.push(payload)
         return published
