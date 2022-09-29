@@ -19,6 +19,7 @@ class EventHandler:
     events for a dispatcher.
     """
     def __init__(self, namespace: str = "root") -> None:
+        super().__init__()
         self.namespace = namespace
         self._dispatcher: AsyncDispatcher | Dispatcher | None = None
 
