@@ -5,7 +5,7 @@ from collections.abc import Callable
 import inspect
 import logging
 from threading import Event, Thread
-from typing import Any, AsyncIterable, Iterable
+from typing import AsyncIterable, Iterable
 import uuid
 
 from .context_var_wrapper import ContextVarWrapper
@@ -14,8 +14,10 @@ from .exceptions import StopEvent, UnknownEvent
 from .serializer import Serializer
 
 
-STOP_SIGNAL = "__STOP__"
+data_type: dict | list | str | tuple | None
 
+
+STOP_SIGNAL = "__STOP__"
 
 context = ContextVarWrapper()
 
@@ -61,7 +63,7 @@ class Dispatcher:
             "This method needs to be implemented in a subclass"
         )
 
-    def _format_data(self, data) -> list:
+    def _format_data(self, data: data_type) -> list:
         if isinstance(data, tuple):
             return list(data)
         if data is None:
@@ -81,7 +83,7 @@ class Dispatcher:
                     if room in self.rooms:
                         sid = message["host_uid"]
                         context.sid = sid
-                        data = message.get("data")
+                        data: data_type = message.get("data")
                         data: list = self._format_data(data)
                         self._trigger_event(event, sid, *data)
                         del context.sid
@@ -95,7 +97,6 @@ class Dispatcher:
 
     def _stop_signal_handler(self, *args, **kwargs) -> None:
         self._running.clear()
-        raise StopEvent
 
     def _handle_connect(self):
         return self._trigger_event(
@@ -127,13 +128,16 @@ class Dispatcher:
     ) -> None:
         try:
             if event == STOP_SIGNAL:
-                return self._stop_signal_handler()
+                self._stop_signal_handler()
+                raise StopEvent
             else:
                 event_handler = self._get_event_handler(event)
                 signature = inspect.signature(event_handler)
                 if "sid" in signature.parameters.keys():
                     return event_handler(sid, *args)
                 return event_handler(*args)
+        except StopEvent:
+            raise StopEvent
         except Exception as e:
             self.logger.debug(
                 f"Encountered an error while handling event '{event}'. Error "
@@ -152,7 +156,7 @@ class Dispatcher:
             self,
             event: str,
             room: str | None = None,
-            data: Any = None,
+            data: data_type = None,
     ) -> dict:
         payload = {"event": event, "host_uid": self.host_uid}
         if room:
@@ -240,7 +244,7 @@ class Dispatcher:
     def emit(
             self,
             event: str,
-            data: Any = None,
+            data: data_type = None,
             to: str | None = None,
             room: str | None = None,
             namespace: str | None = None,
@@ -283,7 +287,7 @@ class Dispatcher:
 
     def stop(self) -> None:
         """Stop to dispatch events."""
-        self.emit(event=STOP_SIGNAL, namespace=self.namespace)
+        self.emit(STOP_SIGNAL, room=self.host_uid, namespace=self.namespace)
         for thread in self.threads:
             self.threads[thread].join()
 
@@ -297,6 +301,7 @@ class AsyncDispatcher(Dispatcher):
             parent_logger: logging.Logger = None
     ) -> None:
         super().__init__(namespace, parent_logger)
+        self._running = asyncio.Event()
 
     async def _publish(self, namespace: str, payload: bytes,
                        ttl: int | None = None) -> None:
@@ -324,7 +329,7 @@ class AsyncDispatcher(Dispatcher):
                     if room in self.rooms:
                         sid = message["host_uid"]
                         context.sid = sid
-                        data = message.get("data")
+                        data: data_type = message.get("data")
                         data: list = self._format_data(data)
                         await self._trigger_event(event, sid, *data)
                         del context.sid
@@ -352,7 +357,8 @@ class AsyncDispatcher(Dispatcher):
     ) -> None:
         try:
             if event == STOP_SIGNAL:
-                return self._stop_signal_handler()
+                self._stop_signal_handler()
+                raise StopEvent
             else:
                 event_handler = self._get_event_handler(event)
                 signature = inspect.signature(event_handler)
@@ -368,7 +374,8 @@ class AsyncDispatcher(Dispatcher):
                     if need_sid:
                         return event_handler(sid, *args)
                     return event_handler(*args)
-
+        except StopEvent:
+            raise StopEvent
         except Exception as e:
             self.logger.debug(
                 f"Encountered an error while handling event '{event}'. Error "
@@ -412,7 +419,7 @@ class AsyncDispatcher(Dispatcher):
     async def emit(
             self,
             event: str,
-            data: Any = None,
+            data: data_type = None,
             to: str | None = None,
             room: str | None = None,
             namespace: str | None = None,
@@ -452,5 +459,5 @@ class AsyncDispatcher(Dispatcher):
     def stop(self) -> None:
         """Stop to dispatch events."""
         asyncio.ensure_future(
-            self.emit(event=STOP_SIGNAL, namespace=self.namespace)
+            self.emit(STOP_SIGNAL, room=self.host_uid, namespace=self.namespace)
         )

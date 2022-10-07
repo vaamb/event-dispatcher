@@ -29,4 +29,3 @@ class ContextVarWrapper:
             self._storage.set(values)
         except KeyError:
             raise AttributeError(key)
-

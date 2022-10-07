@@ -10,6 +10,9 @@ if t.TYPE_CHECKING:
     from .ABC import AsyncDispatcher, Dispatcher
 
 
+data_type: dict | list | str | tuple | None
+
+
 class EventHandler:
     asyncio_based = False
 
@@ -71,7 +74,7 @@ class EventHandler:
     def emit(
             self,
             event: str,
-            data: Any = None,
+            data: data_type = None,
             to: dict | None = None,
             room: str | None = None,
             namespace: str | None = None,
@@ -129,7 +132,7 @@ class AsyncEventHandler(EventHandler):
     async def emit(
             self,
             event: str,
-            data: Any = None,
+            data: data_type = None,
             to: dict | None = None,
             room: str | None = None,
             namespace: str | None = None,
