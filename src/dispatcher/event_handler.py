@@ -21,8 +21,8 @@ class EventHandler:
     A class-based event-handler is a class that contains methods to handle the
     events for a dispatcher.
     """
-    def __init__(self, namespace: str = "root") -> None:
-        super().__init__()
+    def __init__(self, namespace: str = "root", **kwargs) -> None:
+        super().__init__(**kwargs)
         self.namespace = namespace
         self._dispatcher: AsyncDispatcher | Dispatcher | None = None
 
