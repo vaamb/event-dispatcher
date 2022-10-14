@@ -336,7 +336,6 @@ class AsyncDispatcher(Dispatcher):
             except StopEvent:
                 break
             except Exception as e:
-                print(e)
                 self.logger.error(
                     f"Encountered an error. Error msg: "
                     f"`{e.__class__.__name__}: {e}`"
