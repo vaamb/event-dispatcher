@@ -16,12 +16,13 @@ except ImportError:
 
     def _serializer(o) -> str:
         if isinstance(o, datetime):
-            return o.replace(tzinfo=timezone.utc).isoformat(timespec="seconds")
+            return o.astimezone(tz=timezone.utc).isoformat(timespec="seconds")
         if isinstance(o, date):
             return o.isoformat()
         if isinstance(o, time):
             return (
-                datetime.combine(date.today(), o).replace(tzinfo=timezone.utc)
+                datetime.combine(date.today(), o)
+                .astimezone(tz=timezone.utc)
                 .isoformat(timespec="seconds")
             )
         if isinstance(o, uuid.UUID):

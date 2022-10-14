@@ -133,7 +133,7 @@ class Dispatcher:
             else:
                 event_handler = self._get_event_handler(event)
                 signature = inspect.signature(event_handler)
-                if "sid" in signature.parameters.keys():
+                if "sid" in signature.parameters:
                     return event_handler(sid, *args)
                 return event_handler(*args)
         except StopEvent:
@@ -336,6 +336,7 @@ class AsyncDispatcher(Dispatcher):
             except StopEvent:
                 break
             except Exception as e:
+                print(e)
                 self.logger.error(
                     f"Encountered an error. Error msg: "
                     f"`{e.__class__.__name__}: {e}`"
@@ -362,7 +363,7 @@ class AsyncDispatcher(Dispatcher):
             else:
                 event_handler = self._get_event_handler(event)
                 signature = inspect.signature(event_handler)
-                need_sid = "sid" in signature.parameters.keys()
+                need_sid = "sid" in signature.parameters
                 if asyncio.iscoroutinefunction(event_handler) is True:
                     try:
                         if need_sid:
