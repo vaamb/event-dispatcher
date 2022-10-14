@@ -19,7 +19,7 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
             parent_logger: logging.Logger = None,
             exchange_options: dict = None,
             queue_options: dict = None,
-            connection_options: dict = None
+            connection_options: dict = None,
     ) -> None:
         if aio_pika is None:
             raise RuntimeError(
@@ -30,29 +30,29 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
         self.exchange_options = exchange_options or {}
         self.queue_options = queue_options or {}
         self.connection_options = connection_options or {}
-        self._connection_pool = None
-        self._channel_pool = None
+        self.__connection_pool = None
+        self.__channel_pool = None
 
     async def _connection(self) -> "aio_pika.RobustConnection":
         return await aio_pika.connect_robust(self.url)
 
     @property
-    def connection_pool(self) -> "aio_pika.pool.Pool":
-        if not self._connection_pool:
+    def _connection_pool(self) -> "aio_pika.pool.Pool":
+        if not self.__connection_pool:
             pool_size = self.connection_options.get("connection_pool_max_size", 2)
-            self._connection_pool = aio_pika.pool.Pool(self._connection, max_size=pool_size)
-        return self._connection_pool
+            self.__connection_pool = aio_pika.pool.Pool(self._connection, max_size=pool_size)
+        return self.__connection_pool
 
     async def _channel(self) -> "aio_pika.Channel":
-        async with self.connection_pool.acquire() as connection:
+        async with self._connection_pool.acquire() as connection:
             return await connection.channel()
 
     @property
-    def channel_pool(self) -> "aio_pika.pool.Pool":
-        if not self._channel_pool:
+    def _channel_pool(self) -> "aio_pika.pool.Pool":
+        if not self.__channel_pool:
             pool_size = self.connection_options.get("channel_pool_max_size", 10)
-            self._channel_pool = aio_pika.pool.Pool(self._connection, max_size=pool_size)
-        return self._channel_pool
+            self.__channel_pool = aio_pika.pool.Pool(self._connection, max_size=pool_size)
+        return self.__channel_pool
 
     async def _exchange(self, channel) -> "aio_pika.Exchange":
         options = {**self.exchange_options}
@@ -75,7 +75,7 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
 
     async def _publish(self, namespace: str, payload: bytes,
                        ttl: int | None = None) -> None:
-        async with self.channel_pool.acquire() as channel:
+        async with self._channel_pool.acquire() as channel:
             exchange = await self._exchange(channel)
             await exchange.publish(
                 aio_pika.Message(
@@ -86,7 +86,7 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
             )
 
     async def _listen(self):
-        with self.channel_pool.acquire() as channel:
+        async with self._channel_pool.acquire() as channel:
             exchange = await self._exchange(channel)
             queue = await self._queue(channel, exchange)
             while self._running.is_set():
