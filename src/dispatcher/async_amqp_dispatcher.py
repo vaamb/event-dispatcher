@@ -57,31 +57,33 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
     async def _publish(self, namespace: str, payload: bytes,
                        ttl: int | None = None) -> None:
         connection = await self._connection()
-        channel = await self._channel(connection)
-        exchange = await self._exchange(channel)
-        await exchange.publish(
-            aio_pika.Message(
-                body=payload, delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
-                expiration=ttl,
-            ),
-            routing_key=namespace
-        )
+        async with connection:
+            channel = await self._channel(connection)
+            exchange = await self._exchange(channel)
+            await exchange.publish(
+                aio_pika.Message(
+                    body=payload, delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                    expiration=ttl,
+                ),
+                routing_key=namespace
+            )
 
     async def _listen(self):
         connection = await self._connection()
-        channel = await self._channel(connection)
-        exchange = await self._exchange(channel)
-        queue = await self._queue(channel, exchange)
-        while self._running.is_set():
-            try:
-                async with queue.iterator() as queue_iter:
-                    async for message in queue_iter:
-                        async with message.process():
-                            yield message.body
-            except Exception as e:
-                self.logger.exception(
-                    f"Error while reading from queue. Error msg: {e.args}"
-                )
+        async with connection:
+            channel = await self._channel(connection)
+            exchange = await self._exchange(channel)
+            queue = await self._queue(channel, exchange)
+            while self._running.is_set():
+                try:
+                    async with queue.iterator() as queue_iter:
+                        async for message in queue_iter:
+                            async with message.process():
+                                yield message.body
+                except Exception as e:
+                    self.logger.exception(
+                        f"Error while reading from queue. Error msg: {e.args}"
+                    )
 
     def initialize(self) -> None:
         asyncio.ensure_future(self._handle_connect())

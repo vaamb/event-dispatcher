@@ -93,24 +93,27 @@ class KombuDispatcher(Dispatcher):
     def _publish(self, namespace: str, payload: bytes,
                  ttl: int | None = None):
         connection = self._connection()
-        publish = connection.ensure(
-            self.producer, self.producer.publish, errback=self._error_callback
-        )
-        publish(payload, routing_key=namespace, expiration=ttl)
+        with connection:
+            publish = connection.ensure(
+                self.producer, self.producer.publish, errback=self._error_callback
+            )
+            publish(payload, routing_key=namespace, expiration=ttl)
 
     def _listen(self):
-        reader_queue = self._queue(self._exchange())
         connection = self._connection().ensure_connection(
             errback=self._error_callback
         )
-        while self._running.is_set():
-            try:
-                with connection.SimpleQueue(reader_queue) as queue:
-                    while True:
-                        message = queue.get(block=True)
-                        message.ack()
-                        yield message.payload
-            except Exception as e:
-                self.logger.exception(
-                    f"Error while reading from queue. Error msg: {e.args}"
-                )
+        with connection:
+            exchange = self._exchange()
+            reader_queue = self._queue(exchange)
+            while self._running.is_set():
+                try:
+                    with connection.SimpleQueue(reader_queue) as queue:
+                        while True:
+                            message = queue.get(block=True)
+                            message.ack()
+                            yield message.payload
+                except Exception as e:
+                    self.logger.exception(
+                        f"Error while reading from queue. Error msg: {e.args}"
+                    )
