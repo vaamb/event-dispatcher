@@ -48,7 +48,7 @@ class AsyncRedisDispatcher(AsyncDispatcher):
         self.redis_url = url
         self.queue_options = queue_options or {}
 
-    def initialize(self) -> None:
+    async def initialize(self) -> None:
         try:
             self.redis = aioredis.Redis.from_url(self.redis_url,
                                                  **self.redis_options)
@@ -58,8 +58,6 @@ class AsyncRedisDispatcher(AsyncDispatcher):
                 f"Encountered an error while connecting to the server: Error msg: "
                 f"`{e.__class__.__name__}: {e}`."
             )
-        else:
-            asyncio.ensure_future(self._handle_connect())
 
     async def _publish(self, namespace: str, payload: bytes,
                        ttl: int | None = None) -> int:

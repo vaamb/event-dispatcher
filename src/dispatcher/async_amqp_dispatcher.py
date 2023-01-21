@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from .ABC import AsyncDispatcher
@@ -38,7 +37,7 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
 
     @property
     def _connection_pool(self) -> "aio_pika.pool.Pool":
-        if not self.__connection_pool:
+        if self.__connection_pool is None:
             pool_size = self.connection_options.get("connection_pool_max_size", 2)
             self.__connection_pool = aio_pika.pool.Pool(self._connection, max_size=pool_size)
         return self.__connection_pool
@@ -100,5 +99,5 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
                         f"Error while reading from queue. Error msg: {e.args}"
                     )
 
-    def initialize(self) -> None:
-        asyncio.ensure_future(self._handle_connect())
+    async def initialize(self) -> None:
+        pass

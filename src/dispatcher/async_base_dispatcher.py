@@ -44,5 +44,5 @@ class AsyncBaseDispatcher(AsyncDispatcher):
                     f"Error while reading from queue. Error msg: {e.args}"
                 )
 
-    def initialize(self) -> None:
-        asyncio.ensure_future(self._handle_connect())
+    async def initialize(self) -> None:
+        pass

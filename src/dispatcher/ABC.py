@@ -281,8 +281,9 @@ class Dispatcher:
         """Start to dispatch events."""
         if self._running.is_set():
             return
-        self._running.set()
         self.initialize()
+        self._running.set()
+        self._handle_connect()
         self.start_background_task(target=self._thread)
 
     def stop(self) -> None:
@@ -382,7 +383,7 @@ class AsyncDispatcher(Dispatcher):
                 f"msg: `{e.__class__.__name__}: {e}`"
             )
 
-    def initialize(self) -> None:
+    async def initialize(self) -> None:
         """Method to call other methods just before starting the background thread.
         """
         pass
@@ -452,9 +453,14 @@ class AsyncDispatcher(Dispatcher):
         """Start to dispatch events."""
         if self._running.is_set():
             return
-        self._running.set()
-        self.initialize()
-        self.start_background_task(self._thread, loop=loop)
+
+        async def inner_fct():
+            await self.initialize()
+            self._running.set()
+            await self._handle_connect()
+            self.start_background_task(self._thread, loop=loop)
+
+        asyncio.ensure_future(inner_fct())
 
     def stop(self) -> None:
         """Stop to dispatch events."""
