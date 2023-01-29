@@ -42,7 +42,7 @@ class KombuDispatcher(Dispatcher):
         self.url = url
         self.exchange_options = exchange_options or {}
         self.queue_options = queue_options or {}
-        self.producer = self._producer()
+        self.__channel_pool = None
 
     def __repr__(self):
         return f"<KombuDispatcher({self.namespace})>"
@@ -50,8 +50,15 @@ class KombuDispatcher(Dispatcher):
     def _connection(self) -> "kombu.Connection":
         return kombu.Connection(self.url)
 
-    def _channel(self, connection):
-        return connection.channel()
+    def _channel(self):
+        return self._connection().channel()
+
+    @property
+    def _channel_pool(self) -> "kombu.connection.ChannelPool":
+        if not self.__channel_pool:
+            pool_size = 10
+            self.__channel_pool = self._connection().ChannelPool(limit=pool_size)
+        return self.__channel_pool
 
     def _exchange(self) -> "kombu.Exchange":
         options = {"durable": False}
@@ -59,7 +66,7 @@ class KombuDispatcher(Dispatcher):
         name = options.pop("name", "dispatcher")
         return kombu.Exchange(name, **options)
 
-    def _queue(self, exchange) -> "kombu.Queue":
+    def _queue(self) -> "kombu.Queue":
         options = {**self.queue_options}
         name = options.pop("name", self.namespace)
         routing_keys = [name]
@@ -71,13 +78,10 @@ class KombuDispatcher(Dispatcher):
             routing_keys += [self.namespace]
         return kombu.Queue(
             name=name, bindings=[
-                kombu.binding(exchange, routing_key=key)
+                kombu.binding(self._exchange(), routing_key=key)
                 for key in routing_keys
             ], **options
         )
-
-    def _producer(self) -> "kombu.Producer":
-        return self._connection().Producer(exchange=self._exchange())
 
     def initialize(self):
         try:
@@ -95,28 +99,24 @@ class KombuDispatcher(Dispatcher):
 
     def _publish(self, namespace: str, payload: bytes,
                  ttl: int | None = None):
-        connection = self._connection()
-        with connection:
-            publish = connection.ensure(
-                self.producer, self.producer.publish, errback=self._error_callback
-            )
-            publish(payload, routing_key=namespace, expiration=ttl)
+        channel = self._channel_pool.acquire()
+        with kombu.Producer(channel, exchange=self._exchange()) as producer:
+            producer.publish(payload, routing_key=namespace, expiration=ttl, retry=True)
+        channel.release()
 
     def _listen(self):
-        connection = self._connection().ensure_connection(
-            errback=self._error_callback
-        )
-        with connection:
-            exchange = self._exchange()
-            reader_queue = self._queue(exchange)
-            while self._running.is_set():
-                try:
-                    with connection.SimpleQueue(reader_queue) as queue:
-                        while True:
-                            message = queue.get(block=True)
-                            message.ack()
-                            yield message.payload
-                except Exception as e:
-                    self.logger.exception(
-                        f"Error while reading from queue. Error msg: {e.args}"
-                    )
+        from kombu.simple import SimpleQueue
+        channel = self._channel_pool.acquire()
+        reader_queue = self._queue()
+        while self._running.is_set():
+            try:
+                with SimpleQueue(channel, reader_queue) as queue:
+                    while True:
+                        message = queue.get(block=True)
+                        message.ack()
+                        yield message.payload
+            except Exception as e:
+                self.logger.exception(
+                    f"Error while reading from queue. Error msg: {e.args}"
+                )
+        channel.release()
