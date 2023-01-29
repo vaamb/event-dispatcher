@@ -138,8 +138,11 @@ class Dispatcher:
                 return event_handler(*args)
         except StopEvent:
             raise StopEvent
+        except UnknownEvent:
+            if event not in {"connect", "disconnect"}:
+                self.logger.warning(f"No event '{event}' configured")
         except Exception as e:
-            self.logger.debug(
+            self.logger.error(
                 f"Encountered an error while handling event '{event}'. Error "
                 f"msg: `{e.__class__.__name__}: {e}`"
             )
@@ -377,8 +380,11 @@ class AsyncDispatcher(Dispatcher):
                     return event_handler(*args)
         except StopEvent:
             raise StopEvent
+        except UnknownEvent:
+            if event not in {"connect", "disconnect"}:
+                self.logger.warning(f"No event '{event}' configured")
         except Exception as e:
-            self.logger.debug(
+            self.logger.error(
                 f"Encountered an error while handling event '{event}'. Error "
                 f"msg: `{e.__class__.__name__}: {e}`"
             )
