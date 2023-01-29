@@ -11,6 +11,21 @@ except ImportError:
 
 
 class AsyncAMQPDispatcher(AsyncDispatcher):
+    """An event dispatcher that uses RabbitMQ as message broker
+
+    This class implements an event dispatcher using RabbitMQ as the message
+    broker.
+
+    :param namespace: The name of the dispatcher the events will be sent from
+                      and sent to.
+    :param url: The connection URL for the RabbitMQ server.
+    :param parent_logger: A logging.Logger instance. The dispatcher logger
+                          will be set to 'parent_logger.namespace'.
+    :param exchange_options: Options for the aio_pika exchange.
+    :param queue_options: Options to pass to aio_pika queue.
+    :param exchange_opt: Options to pass to aio_pika exchange.
+    :param connection_options: Options to pass to aio_pika connection.
+    """
     def __init__(
             self,
             namespace: str,
