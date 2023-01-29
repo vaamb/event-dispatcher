@@ -47,6 +47,9 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
         self.__connection_pool = None
         self.__channel_pool = None
 
+    def __repr__(self):
+        return f"<AsyncAMQPDispatcher({self.namespace})>"
+
     async def _connection(self) -> "aio_pika.RobustConnection":
         return await aio_pika.connect_robust(self.url)
 

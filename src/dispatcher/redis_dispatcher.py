@@ -27,8 +27,8 @@ class RedisDispatcher(Dispatcher):
             self,
             namespace: str,
             url: str = "redis://localhost:6379/0",
-            redis_options: dict = None,
             parent_logger: logging.Logger = None,
+            redis_options: dict = None,
             queue_options: dict = None,
     ) -> None:
         if redis is None:
@@ -39,6 +39,9 @@ class RedisDispatcher(Dispatcher):
         self.redis_options = redis_options or {}
         self.redis_url = url
         self.queue_options = queue_options or {}
+
+    def __repr__(self):
+        return f"<RedisDispatcher({self.namespace})>"
 
     def initialize(self) -> None:
         try:

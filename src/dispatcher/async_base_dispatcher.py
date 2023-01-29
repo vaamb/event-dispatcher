@@ -29,6 +29,9 @@ class AsyncBaseDispatcher(AsyncDispatcher):
         self.pubsub = AsyncPubSub()
         super().__init__(namespace, parent_logger)
 
+    def __repr__(self):
+        return f"<AsyncBaseDispatcher({self.namespace})>"
+
     async def _publish(self, namespace: str, payload: bytes,
                        ttl: int | None = None) -> int:
         return await self.pubsub.publish(namespace, payload)

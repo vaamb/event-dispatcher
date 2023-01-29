@@ -28,6 +28,9 @@ class BaseDispatcher(Dispatcher):
         self.pubsub = StupidPubSub()
         super().__init__(namespace, parent_logger)
 
+    def __repr__(self):
+        return f"<BaseDispatcher({self.namespace})>"
+
     def initialize(self) -> None:
         self._handle_connect()
 

@@ -44,6 +44,9 @@ class KombuDispatcher(Dispatcher):
         self.queue_options = queue_options or {}
         self.producer = self._producer()
 
+    def __repr__(self):
+        return f"<KombuDispatcher({self.namespace})>"
+
     def _connection(self) -> "kombu.Connection":
         return kombu.Connection(self.url)
 

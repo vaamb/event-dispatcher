@@ -20,21 +20,22 @@ except ImportError:
 class AsyncRedisDispatcher(AsyncDispatcher):
     """An async Redis-based events dispatcher
 
-        This class implements an event dispatcher using Redis as the message broker.
+    This class implements an event dispatcher using Redis as the message broker.
 
-        :param namespace: The name of the dispatcher the events will be sent from
-                          and sent to.
-        :param url: The connection URL for the Redis server.
-        :param parent_logger: A logging.Logger instance. The dispatcher logger
-                              will be set to 'parent_logger.namespace'.
-        :param redis_options: Options to pass to the Redis instance.
-        """
+    :param namespace: The name of the dispatcher the events will be sent from
+                      and sent to.
+    :param url: The connection URL for the Redis server.
+    :param parent_logger: A logging.Logger instance. The dispatcher logger
+                          will be set to 'parent_logger.namespace'.
+    :param redis_options: Options to pass to the Redis instance.
+    :param queue_options: Options to add extra routing keys.
+    """
     def __init__(
             self,
             namespace: str,
             url: str = "redis://localhost:6379/0",
-            redis_options: dict = None,
             parent_logger: logging.Logger = None,
+            redis_options: dict = None,
             queue_options: dict = None,
     ) -> None:
         if aioredis is None:
@@ -47,6 +48,9 @@ class AsyncRedisDispatcher(AsyncDispatcher):
         self.redis_options = redis_options or {}
         self.redis_url = url
         self.queue_options = queue_options or {}
+
+    def __repr__(self):
+        return f"<AsyncRedisDispatcher({self.namespace})>"
 
     async def initialize(self) -> None:
         try:
