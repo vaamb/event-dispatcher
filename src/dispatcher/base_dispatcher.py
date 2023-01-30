@@ -31,9 +31,6 @@ class BaseDispatcher(Dispatcher):
     def __repr__(self):
         return f"<BaseDispatcher({self.namespace})>"
 
-    def initialize(self) -> None:
-        self._handle_connect()
-
     def _publish(self, namespace: str, payload: dict,
                  ttl: int | None = None) -> int:
         return self.pubsub.publish(namespace, payload)

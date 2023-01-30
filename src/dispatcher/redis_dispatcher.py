@@ -52,11 +52,13 @@ class RedisDispatcher(Dispatcher):
                 f"Encountered an error while connecting to the server: Error msg: "
                 f"`{e.__class__.__name__}: {e}`."
             )
-        else:
-            self._handle_connect()
 
-    def _publish(self, namespace: str, payload: bytes,
-                 ttl: int | None = None) -> int:
+    def _publish(
+            self,
+            namespace: str,
+            payload: bytes,
+            ttl: int | None = None
+    ) -> int:
         return self.redis.publish(namespace, payload)
 
     def _listen(self):
