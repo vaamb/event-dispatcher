@@ -105,18 +105,19 @@ class KombuDispatcher(Dispatcher):
         channel.release()
 
     def _listen(self):
-        from kombu.simple import SimpleQueue
-        channel = self._channel_pool.acquire()
         reader_queue = self._queue()
-        while self._running.is_set():
-            try:
-                with SimpleQueue(channel, reader_queue) as queue:
-                    while True:
-                        message = queue.get(block=True)
-                        message.ack()
-                        yield message.payload
-            except Exception as e:
-                self.logger.exception(
-                    f"Error while reading from queue. Error msg: {e.args}"
-                )
-        channel.release()
+        connection = self._connection().ensure_connection(
+            errback=self._error_callback
+        )
+        with connection:
+            while self._running.is_set():
+                try:
+                    with connection.SimpleQueue(reader_queue) as queue:
+                        while True:
+                            message = queue.get(block=True)
+                            message.ack()
+                            yield message.payload
+                except Exception as e:
+                    self.logger.exception(
+                        f"Error while reading from queue. Error msg: {e.args}"
+                    )
