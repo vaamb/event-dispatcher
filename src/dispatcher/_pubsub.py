@@ -8,6 +8,8 @@ from typing import Iterable, AsyncIterable
 
 
 class Broker:
+    __slots__ = ["clients"]
+
     def __init__(self) -> None:
         self.clients: set["StupidPubSub"] = set()
 
@@ -41,14 +43,13 @@ _async_broker = AsyncBroker()
 
 
 class StupidPubSub:
-    def __init__(self, broker: Broker = None) -> None:
-        if not broker:
-            self.broker = _broker
-        else:
-            if isinstance(broker, Broker):
-                self.broker = broker
-            else:
-                raise TypeError("broker needs to be an instance of Broker()")
+    __slots__ = ["broker", "channels", "messages"]
+
+    def __init__(self) -> None:
+        self._init()
+
+    def _init(self):
+        self.broker = _broker
         self.broker.link(self)
         self.channels: set[str] = set()
         self.messages = Queue()
@@ -79,10 +80,10 @@ class StupidPubSub:
 
 
 class AsyncPubSub(StupidPubSub):
-    def __init__(self, broker: AsyncBroker = None):
-        if not broker:
-            broker = _async_broker
-        super().__init__(broker)
+    def _init(self):
+        self.broker = _async_broker
+        self.broker.link(self)
+        self.channels: set[str] = set()
         self.messages = asyncio.Queue()
 
     async def publish(self, channel: str, message: dict | bytes) -> int:

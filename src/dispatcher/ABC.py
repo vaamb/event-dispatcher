@@ -50,6 +50,13 @@ class Dispatcher:
         self._fallback = None
         self._sessions = {}
 
+    def __repr__(self):
+        return f"<{self.__class__.__name__}({self.namespace}, running={self.running})>"
+
+    @property
+    def running(self):
+        return self._running.is_set()
+
     def _publish(self, namespace: str, payload: bytes,
                  ttl: int | None = None) -> None:
         """Publish the payload to the namespace."""
@@ -188,7 +195,7 @@ class Dispatcher:
 
     def session(self, sid: str, namespace: str | None = None):
         class _session_ctx_manager:
-            def __init__(self, dispatcher, sid, namespace):
+            def __init__(self, dispatcher, _sid, _namespace):
                 self.dispatcher = dispatcher
                 self.sid = sid
                 self.namespace = namespace.strip("/")
@@ -215,7 +222,7 @@ class Dispatcher:
         event_handler._set_dispatcher(self)
         self.event_handlers.add(event_handler)
 
-    def on(self, event: str, handler: Callable = None) -> None:
+    def on(self, event: str, handler: Callable = None):
         """Register an event handler
 
         :param event: The event name.
@@ -236,9 +243,9 @@ class Dispatcher:
             rem: sender_uid will always be the first argument. It can be used
             to emit an event back to the sender
         """
-        def set_handler(handler: Callable):
-            self.handlers[event] = handler
-            return handler
+        def set_handler(_handler: Callable):
+            self.handlers[event] = _handler
+            return _handler
 
         if handler is None:
             return set_handler
@@ -396,7 +403,7 @@ class AsyncDispatcher(Dispatcher):
 
     def session(self, sid: str, namespace: str | None = None):
         class _session_ctx_manager:
-            def __init__(self, dispatcher, sid, namespace):
+            def __init__(self, dispatcher, _sid, _namespace):
                 self.dispatcher = dispatcher
                 self.sid = sid
                 self.namespace = namespace.strip("/")

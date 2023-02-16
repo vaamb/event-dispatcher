@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from time import sleep
 
 try:
     import kombu
@@ -42,23 +43,20 @@ class KombuDispatcher(Dispatcher):
         self.url = url
         self.exchange_options = exchange_options or {}
         self.queue_options = queue_options or {}
-        self.__channel_pool = None
-
-    def __repr__(self):
-        return f"<KombuDispatcher({self.namespace})>"
+        self.listener_connection = None
+        self.__publisher_channel_pool = None
 
     def _connection(self) -> "kombu.Connection":
         return kombu.Connection(self.url)
 
-    def _channel(self):
-        return self._connection().channel()
+    def _channel(self, connection: "kombu.Connection"):
+        return connection.channel()
 
     @property
-    def _channel_pool(self) -> "kombu.connection.ChannelPool":
-        if not self.__channel_pool:
-            pool_size = 10
-            self.__channel_pool = self._connection().ChannelPool(limit=pool_size)
-        return self.__channel_pool
+    def _publisher_channel_pool(self) -> "kombu.connection.ChannelPool":
+        if not self.__publisher_channel_pool:
+            self.__publisher_channel_pool = self._connection().ChannelPool(limit=10)
+        return self.__publisher_channel_pool
 
     def _exchange(self) -> "kombu.Exchange":
         options = {"durable": False}
@@ -80,42 +78,45 @@ class KombuDispatcher(Dispatcher):
             name=name, bindings=[
                 kombu.binding(self._exchange(), routing_key=key)
                 for key in routing_keys
-            ], **options
+            ], expires=3600.0, message_ttl=60.0, **options
         )
 
-    def initialize(self):
-        try:
-            self._connection().connect()
-        except Exception as e:
-            self.logger.error(
-                f"Encountered an error while connecting to the server: Error msg: "
-                f"`{e.__class__.__name__}: {e}`."
-            )
-
     def _error_callback(self, exception, interval):
-        self.logger.exception(f"Sleeping {interval}s")
+        self.logger.exception(f"Sleeping {interval} s")
 
-    def _publish(self, namespace: str, payload: bytes,
-                 ttl: int | None = None):
-        channel = self._channel_pool.acquire()
+    def _publish(
+            self,
+            namespace: str,
+            payload: bytes,
+            ttl: int | None = None
+    ) -> None:
+        channel = self._publisher_channel_pool.acquire()
         with kombu.Producer(channel, exchange=self._exchange()) as producer:
-            producer.publish(payload, routing_key=namespace, expiration=ttl, retry=True)
+            producer.publish(
+                payload, routing_key=namespace, expiration=ttl, retry=True)
         channel.release()
 
     def _listen(self):
-        reader_queue = self._queue()
-        connection = self._connection().ensure_connection(
-            errback=self._error_callback
-        )
-        with connection:
-            while self._running.is_set():
-                try:
-                    with connection.SimpleQueue(reader_queue) as queue:
-                        while True:
-                            message = queue.get(block=True)
-                            message.ack()
-                            yield message.payload
-                except Exception as e:
-                    self.logger.exception(
-                        f"Error while reading from queue. Error msg: {e.args}"
-                    )
+        listener_queue = self._queue()
+        retry_sleep = 1
+        while True:
+            try:
+                if self.listener_connection is None:
+                    self.listener_connection = self._connection()
+                    self.listener_connection.connect()
+                    retry_sleep = 1
+                with self.listener_connection.SimpleQueue(listener_queue) as queue:
+                    while True:
+                        message = queue.get(block=True)
+                        message.ack()
+                        yield message.payload
+            except Exception:  # noqa
+                self.logger.error(
+                    f"Error while reading from the queue. Retrying in "
+                    f"{retry_sleep} s"
+                )
+                self.listener_connection = None
+                sleep(retry_sleep)
+                retry_sleep *= 2
+                if retry_sleep > 60:
+                    retry_sleep = 60

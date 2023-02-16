@@ -28,9 +28,6 @@ class BaseDispatcher(Dispatcher):
         self.pubsub = StupidPubSub()
         super().__init__(namespace, parent_logger)
 
-    def __repr__(self):
-        return f"<BaseDispatcher({self.namespace})>"
-
     def _publish(self, namespace: str, payload: dict,
                  ttl: int | None = None) -> int:
         return self.pubsub.publish(namespace, payload)

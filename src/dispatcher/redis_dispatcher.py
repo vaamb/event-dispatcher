@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from time import sleep
 
 try:
     import redis
@@ -34,18 +35,22 @@ class RedisDispatcher(Dispatcher):
         if redis is None:
             raise RuntimeError(
                 "Install 'redis' package to use RedisDispatcher"
-        )
+            )
         super().__init__(namespace=namespace, parent_logger=parent_logger)
         self.redis_options = redis_options or {}
         self.redis_url = url
         self.queue_options = queue_options or {}
+        self.redis = None
+        self.pubsub = None
+        self._connect_to_redis()
 
     def __repr__(self):
         return f"<RedisDispatcher({self.namespace})>"
 
-    def initialize(self) -> None:
+    def _connect_to_redis(self) -> None:
         try:
-            self.redis = redis.Redis.from_url(self.redis_url, **self.redis_options)
+            self.redis = redis.Redis.from_url(
+                self.redis_url, **self.redis_options)
             self.pubsub = self.redis.pubsub(ignore_subscribe_messages=True)
         except redis.ConnectionError as e:
             self.logger.error(
@@ -53,15 +58,7 @@ class RedisDispatcher(Dispatcher):
                 f"`{e.__class__.__name__}: {e}`."
             )
 
-    def _publish(
-            self,
-            namespace: str,
-            payload: bytes,
-            ttl: int | None = None
-    ) -> int:
-        return self.redis.publish(namespace, payload)
-
-    def _listen(self):
+    def _subscribe(self) -> None:
         options = {**self.queue_options}
         name = options.pop("name", self.namespace)
         extra_routing_keys = options.pop("extra_routing_keys", [])
@@ -72,12 +69,33 @@ class RedisDispatcher(Dispatcher):
             extra_routing_keys.append(name)
         for key in extra_routing_keys:
             self.pubsub.subscribe(key)
-        while self._running.is_set():
+
+    def _publish(
+            self,
+            namespace: str,
+            payload: bytes,
+            ttl: int | None = None
+    ) -> int:
+        return self.redis.publish(namespace, payload)
+
+    def _listen(self):
+        retry_sleep = 1
+        while True:
             try:
+                if self.redis is None:
+                    self._connect_to_redis()
+                    self._subscribe()
+                    retry_sleep = 1
                 for message in self.pubsub.listen():
                     if "data" in message:
                         yield message["data"]
-            except Exception as e:
-                self.logger.exception(
-                    f"Error while reading from queue. Error msg: {e.args}"
+            except Exception:  # noqa
+                self.logger.error(
+                    f"Error while reading from redis queue. Retrying in "
+                    f"{retry_sleep} s"
                 )
+                self.redis = None
+                sleep(retry_sleep)
+                retry_sleep *= 2
+                if retry_sleep > 60:
+                    retry_sleep = 60

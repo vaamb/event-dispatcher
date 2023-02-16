@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from asyncio import sleep
 import logging
 
 from .ABC import AsyncDispatcher
@@ -21,9 +22,8 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
     :param url: The connection URL for the RabbitMQ server.
     :param parent_logger: A logging.Logger instance. The dispatcher logger
                           will be set to 'parent_logger.namespace'.
-    :param exchange_options: Options for the aio_pika exchange.
+    :param exchange_options: Options to pass to aio_pika exchange.
     :param queue_options: Options to pass to aio_pika queue.
-    :param exchange_opt: Options to pass to aio_pika exchange.
     :param connection_options: Options to pass to aio_pika connection.
     """
     def __init__(
@@ -44,34 +44,36 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
         self.exchange_options = exchange_options or {}
         self.queue_options = queue_options or {}
         self.connection_options = connection_options or {}
-        self.__connection_pool = None
-        self.__channel_pool = None
-
-    def __repr__(self):
-        return f"<AsyncAMQPDispatcher({self.namespace})>"
+        self.listener_connection = None
+        self.listener_channel = None
+        self.listener_queue = None
+        self.__publisher_channel_pool = None
 
     async def _connection(self) -> "aio_pika.RobustConnection":
         return await aio_pika.connect_robust(self.url)
 
-    @property
-    def _connection_pool(self) -> "aio_pika.pool.Pool":
-        if self.__connection_pool is None:
-            pool_size = self.connection_options.get("connection_pool_max_size", 2)
-            self.__connection_pool = aio_pika.pool.Pool(self._connection, max_size=pool_size)
-        return self.__connection_pool
-
-    async def _channel(self) -> "aio_pika.RobustChannel":
-        async with self._connection_pool.acquire() as connection:
-            return await connection.channel()
+    async def _channel(
+            self,
+            connection: "aio_pika.RobustConnection"
+    ) -> "aio_pika.RobustChannel":
+        return await connection.channel()
 
     @property
-    def _channel_pool(self) -> "aio_pika.pool.Pool":
-        if not self.__channel_pool:
-            pool_size = self.connection_options.get("channel_pool_max_size", 10)
-            self.__channel_pool = aio_pika.pool.Pool(self._channel, max_size=pool_size)
-        return self.__channel_pool
+    def _publisher_channel_pool(self) -> "aio_pika.pool.Pool":
+        if not self.__publisher_channel_pool:
+            async def channel_constructor():
+                connection = await self._connection()
+                channel = await connection.channel()
+                return channel
 
-    async def _exchange(self, channel: "aio_pika.RobustChannel") -> "aio_pika.Exchange":
+            self.__publisher_channel_pool = aio_pika.pool.Pool(
+                channel_constructor, max_size=10)
+        return self.__publisher_channel_pool
+
+    async def _exchange(
+            self,
+            channel: "aio_pika.RobustChannel"
+    ) -> "aio_pika.RobustExchange":
         options = {**self.exchange_options}
         name = options.pop("name", "dispatcher")
         return await channel.declare_exchange(name, **options)
@@ -80,7 +82,9 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
         options = {**self.queue_options}
         name = options.pop("name", self.namespace)
         extra_routing_keys = options.pop("extra_routing_keys", [])
-        queue = await channel.declare_queue(name, **options)
+        queue = await channel.declare_queue(
+            name, arguments={"x-expires": 3600000, "x-message-ttl": 60000},
+            **options)
         await queue.bind(exchange, routing_key=self.namespace)
         if isinstance(extra_routing_keys, str):
             extra_routing_keys = [extra_routing_keys]
@@ -90,9 +94,13 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
             await queue.bind(exchange, routing_key=key)
         return queue
 
-    async def _publish(self, namespace: str, payload: bytes,
-                       ttl: int | None = None) -> None:
-        async with self._channel_pool.acquire() as channel:
+    async def _publish(
+            self,
+            namespace: str,
+            payload: bytes,
+            ttl: int | None = None
+    ) -> None:
+        async with self._publisher_channel_pool.acquire() as channel:
             exchange = await self._exchange(channel)
             await exchange.publish(
                 aio_pika.Message(
@@ -103,19 +111,30 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
             )
 
     async def _listen(self):
-        async with self._channel_pool.acquire() as channel:
-            exchange = await self._exchange(channel)
-            queue = await self._queue(channel, exchange)
-            while self._running.is_set():
-                try:
-                    async with queue.iterator() as queue_iter:
-                        async for message in queue_iter:
-                            async with message.process():
-                                yield message.body
-                except Exception as e:
-                    self.logger.exception(
-                        f"Error while reading from queue. Error msg: {e.args}"
+        retry_sleep = 1
+        while True:
+            try:
+                if self.listener_connection is None:
+                    self.listener_connection = await self._connection()
+                    self.listener_channel = await self._channel(
+                        self.listener_connection
                     )
-
-    async def initialize(self) -> None:
-        pass
+                    exchange = await self._exchange(self.listener_channel)
+                    self.listener_queue = await self._queue(
+                        self.listener_channel, exchange
+                    )
+                    retry_sleep = 1
+                async with self.listener_queue.iterator() as queue_iter:
+                    async for message in queue_iter:
+                        async with message.process():
+                            yield message.body
+            except Exception:  # noqa
+                self.logger.error(
+                    f"Error while reading from rabbitmq queue. Retrying in "
+                    f"{retry_sleep} s"
+                )
+                self.listener_connection = None
+                await sleep(retry_sleep)
+                retry_sleep *= 2
+                if retry_sleep > 60:
+                    retry_sleep = 60
