@@ -23,6 +23,7 @@ class EventHandler:
     """
     def __init__(self, namespace: str = "root", **kwargs) -> None:
         super().__init__(**kwargs)
+        namespace = namespace.strip("/")
         self.namespace = namespace
         self._dispatcher: AsyncDispatcher | Dispatcher | None = None
 
