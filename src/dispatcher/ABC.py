@@ -684,7 +684,7 @@ class AsyncDispatcher(Dispatcher):
         if self.connected:
             raise RuntimeError("Already connected")
         await self.initialize()
-        connected = self._broker_reachable()
+        connected = await self._broker_reachable()
         if connected:
             await self._handle_broker_connect()
         else:
@@ -714,10 +714,13 @@ class AsyncDispatcher(Dispatcher):
 
     def start(self, retry: bool = False, block: bool = True) -> None:
         """Start to dispatch and receive events."""
-        self.connect(retry, block)
-        self.run()
-        if block:
-            self.wait()
+        async def async_wrapper():
+            await self.connect(retry=retry, wait=True)
+            await self.run()
+            if block:
+                await self.wait()
+
+        asyncio.ensure_future(async_wrapper())
 
     def stop(self) -> None:
         """Stop to dispatch events."""
