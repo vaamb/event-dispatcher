@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import logging
 
-import aiormq.exceptions
-
 from .ABC import AsyncDispatcher
 
 try:
     import aio_pika
+    import aiormq
 except ImportError:
     aio_pika = None
+    aiormq = None
 
 
 class AsyncAMQPDispatcher(AsyncDispatcher):
