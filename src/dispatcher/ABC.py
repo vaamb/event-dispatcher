@@ -188,20 +188,19 @@ class Dispatcher:
     def _reconnection_loop(self) -> None:
         self._reconnecting.set()
         retry_sleep = 1
-        while self.running and self._reconnecting.is_set():
-            try:
-                self._broker_reachable()
-            except Exception:  # noqa
+        while self._reconnecting.is_set():
+            connected = self._broker_reachable()
+            if connected:
+                self._reconnecting.clear()
+                self._handle_broker_connect()
+                break
+            else:
                 self.logger.debug(
                     f"Reconnection attempt failed. Retrying in {retry_sleep} s")
                 time.sleep(retry_sleep)
                 retry_sleep *= 2
                 if retry_sleep > 60:
                     retry_sleep = 60
-            else:
-                self._reconnecting.clear()
-                self._handle_broker_connect()
-                break
 
     def _listen_loop(self) -> None:
         while self.running and self.connected:
@@ -244,15 +243,15 @@ class Dispatcher:
                 self._running.clear()
                 break
             except ConnectionError:
-                pass  # Try to reconnect if needed
-            self._handle_broker_disconnect()
-            if self.reconnection:
-                self.logger.warning("Connection lost, will try to reconnect")
-                self._reconnection_loop()
-            else:
-                self.logger.warning("Connection lost, stopping")
-                self._running.clear()
-                break
+                self._handle_broker_disconnect()
+                # Try to reconnect if needed
+                if self.reconnection:
+                    self.logger.warning("Connection lost, will try to reconnect")
+                    self._reconnection_loop()
+                else:
+                    self.logger.warning("Connection lost, stopping")
+                    self._running.clear()
+                    break
 
     """
     API calls
@@ -534,20 +533,19 @@ class AsyncDispatcher(Dispatcher):
     async def _reconnection_loop(self) -> None:
         self._reconnecting.set()
         retry_sleep = 1
-        while self.running and self._reconnecting.is_set():
-            try:
-                await self._broker_reachable()
-            except Exception:  # noqa
+        while self._reconnecting.is_set():
+            connected = await self._broker_reachable()
+            if connected:
+                self._reconnecting.clear()
+                await self._handle_broker_connect()
+                break
+            else:
                 self.logger.debug(
                     f"Reconnection attempt failed. Retrying in {retry_sleep} s")
                 time.sleep(retry_sleep)
                 retry_sleep *= 2
                 if retry_sleep > 60:
                     retry_sleep = 60
-            else:
-                self._reconnecting.clear()
-                await self._handle_broker_connect()
-                break
 
     async def _listen_loop(self) -> None:
         while self.running and self.connected:
@@ -589,14 +587,15 @@ class AsyncDispatcher(Dispatcher):
                 self._running.clear()
                 break
             except ConnectionError:
-                pass  # Try to reconnect if needed
-            if self.reconnection:
-                self.logger.warning("Connection lost, will try to reconnect")
-                await self._reconnection_loop()
-            else:
-                self.logger.warning("Connection lost, stopping")
-                self._running.clear()
-                break
+                await self._handle_broker_disconnect()
+                # Try to reconnect if needed
+                if self.reconnection:
+                    self.logger.warning("Connection lost, will try to reconnect")
+                    await self._reconnection_loop()
+                else:
+                    self.logger.warning("Connection lost, stopping")
+                    self._running.clear()
+                    break
 
     """
     API
