@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from asyncio import sleep
 import logging
+
+import aiormq.exceptions
 
 from .ABC import AsyncDispatcher
 
@@ -48,6 +49,14 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
         self.listener_channel = None
         self.listener_queue = None
         self.__publisher_channel_pool = None
+
+    async def _broker_reachable(self) -> bool:
+        try:
+            await aio_pika.connect(self.url)
+        except aiormq.exceptions.AMQPConnectionError:
+            return False
+        else:
+            return True
 
     async def _connection(self) -> "aio_pika.RobustConnection":
         return await aio_pika.connect_robust(self.url)
@@ -111,7 +120,6 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
             )
 
     async def _listen(self):
-        retry_sleep = 1
         while True:
             try:
                 if self.listener_connection is None:
@@ -123,18 +131,9 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
                     self.listener_queue = await self._queue(
                         self.listener_channel, exchange
                     )
-                    retry_sleep = 1
                 async with self.listener_queue.iterator() as queue_iter:
                     async for message in queue_iter:
                         async with message.process():
                             yield message.body
             except Exception:  # noqa
-                self.logger.error(
-                    f"Error while reading from rabbitmq queue. Retrying in "
-                    f"{retry_sleep} s"
-                )
-                self.listener_connection = None
-                await sleep(retry_sleep)
-                retry_sleep *= 2
-                if retry_sleep > 60:
-                    retry_sleep = 60
+                raise ConnectionError

@@ -26,6 +26,9 @@ class AsyncBaseDispatcher(AsyncDispatcher):
         self.pubsub = AsyncPubSub()
         super().__init__(namespace, parent_logger)
 
+    def _broker_reachable(self) -> bool:
+        return True
+
     async def _publish(self, namespace: str, payload: bytes,
                        ttl: int | None = None) -> int:
         return await self.pubsub.publish(namespace, payload)

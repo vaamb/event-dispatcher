@@ -28,6 +28,9 @@ class BaseDispatcher(Dispatcher):
         self.pubsub = StupidPubSub()
         super().__init__(namespace, parent_logger)
 
+    def _broker_reachable(self) -> bool:
+        return True
+
     def _publish(self, namespace: str, payload: dict,
                  ttl: int | None = None) -> int:
         return self.pubsub.publish(namespace, payload)

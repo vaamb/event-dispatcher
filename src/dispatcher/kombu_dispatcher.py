@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from time import sleep
 
 try:
     import kombu
@@ -45,6 +44,14 @@ class KombuDispatcher(Dispatcher):
         self.queue_options = queue_options or {}
         self.listener_connection = None
         self.__publisher_channel_pool = None
+
+    def _broker_reachable(self) -> bool:
+        try:
+            self._connection().connect()
+        except Exception:
+            return False
+        else:
+            return True
 
     def _connection(self) -> "kombu.Connection":
         return kombu.Connection(self.url)
@@ -98,25 +105,15 @@ class KombuDispatcher(Dispatcher):
 
     def _listen(self):
         listener_queue = self._queue()
-        retry_sleep = 1
         while True:
             try:
                 if self.listener_connection is None:
                     self.listener_connection = self._connection()
                     self.listener_connection.connect()
-                    retry_sleep = 1
                 with self.listener_connection.SimpleQueue(listener_queue) as queue:
                     while True:
                         message = queue.get(block=True)
                         message.ack()
                         yield message.payload
             except Exception:  # noqa
-                self.logger.error(
-                    f"Error while reading from the queue. Retrying in "
-                    f"{retry_sleep} s"
-                )
-                self.listener_connection = None
-                sleep(retry_sleep)
-                retry_sleep *= 2
-                if retry_sleep > 60:
-                    retry_sleep = 60
+                raise ConnectionError

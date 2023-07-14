@@ -44,8 +44,13 @@ class RedisDispatcher(Dispatcher):
         self.pubsub = None
         self._connect_to_redis()
 
-    def __repr__(self):
-        return f"<RedisDispatcher({self.namespace})>"
+    def _broker_reachable(self) -> bool:
+        try:
+            redis.Redis.from_url(self.redis_url, **self.redis_options)
+        except redis.ConnectionError as e:
+            return False
+        else:
+            return True
 
     def _connect_to_redis(self) -> None:
         try:
@@ -79,7 +84,6 @@ class RedisDispatcher(Dispatcher):
         return self.redis.publish(namespace, payload)
 
     def _listen(self):
-        retry_sleep = 1
         while True:
             try:
                 if self.redis is None:
@@ -90,12 +94,4 @@ class RedisDispatcher(Dispatcher):
                     if "data" in message:
                         yield message["data"]
             except Exception:  # noqa
-                self.logger.error(
-                    f"Error while reading from redis queue. Retrying in "
-                    f"{retry_sleep} s"
-                )
-                self.redis = None
-                sleep(retry_sleep)
-                retry_sleep *= 2
-                if retry_sleep > 60:
-                    retry_sleep = 60
+                raise ConnectionError

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from asyncio import sleep
 import logging
 
 from .ABC import AsyncDispatcher
@@ -52,6 +51,14 @@ class AsyncRedisDispatcher(AsyncDispatcher):
         self.pubsub = None
         self._connect_to_redis()
 
+    def _broker_reachable(self) -> bool:
+        try:
+            aioredis.Redis.from_url(self.redis_url, **self.redis_options)
+        except RedisError:
+            return False
+        else:
+            return True
+
     def _connect_to_redis(self) -> None:
         try:
             self.redis = aioredis.Redis.from_url(
@@ -60,8 +67,7 @@ class AsyncRedisDispatcher(AsyncDispatcher):
         except RedisError as e:
             self.logger.error(
                 f"Encountered an error while connecting to the server: Error msg: "
-                f"`{e.__class__.__name__}: {e}`."
-            )
+                f"`{e.__class__.__name__}: {e}`.")
 
     def _subscribe(self) -> None:
         options = {**self.queue_options}
@@ -80,23 +86,13 @@ class AsyncRedisDispatcher(AsyncDispatcher):
         return await self.redis.publish(namespace, payload)
 
     async def _listen(self):
-        retry_sleep = 1
         while True:
             try:
                 if self.redis is None:
                     self._connect_to_redis()
                     self._subscribe()
-                    retry_sleep = 1
                 async for message in self.pubsub.listen():
                     if "data" in message:
                         yield message["data"]
-            except Exception:  # noqa
-                self.logger.error(
-                    f"Error while reading from redis queue.  Retrying in "
-                    f"{retry_sleep} s"
-                )
-                self.redis = None
-                await sleep(retry_sleep)
-                retry_sleep *= 2
-                if retry_sleep > 60:
-                    retry_sleep = 60
+            except RedisError:
+                raise ConnectionError
