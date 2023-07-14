@@ -109,15 +109,18 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
             payload: bytes,
             ttl: int | None = None
     ) -> None:
-        async with self._publisher_channel_pool.acquire() as channel:
-            exchange = await self._exchange(channel)
-            await exchange.publish(
-                aio_pika.Message(
-                    body=payload, delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
-                    expiration=ttl,
-                ),
-                routing_key=namespace
-            )
+        try:
+            async with self._publisher_channel_pool.acquire() as channel:
+                exchange = await self._exchange(channel)
+                await exchange.publish(
+                    aio_pika.Message(
+                        body=payload, delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                        expiration=ttl,
+                    ),
+                    routing_key=namespace
+                )
+        except Exception:
+            raise ConnectionError("Failed to publish payload")
 
     async def _listen(self):
         while True:

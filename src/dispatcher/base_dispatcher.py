@@ -31,8 +31,12 @@ class BaseDispatcher(Dispatcher):
     def _broker_reachable(self) -> bool:
         return True
 
-    def _publish(self, namespace: str, payload: dict,
-                 ttl: int | None = None) -> int:
+    def _publish(
+            self,
+            namespace: str,
+            payload: dict,
+            ttl: int | None = None
+    ) -> int:
         return self.pubsub.publish(namespace, payload)
 
     def _listen(self):

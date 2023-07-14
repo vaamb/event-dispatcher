@@ -29,8 +29,12 @@ class AsyncBaseDispatcher(AsyncDispatcher):
     def _broker_reachable(self) -> bool:
         return True
 
-    async def _publish(self, namespace: str, payload: bytes,
-                       ttl: int | None = None) -> int:
+    async def _publish(
+            self,
+            namespace: str,
+            payload: dict,
+            ttl: int | None = None
+    ) -> int:
         return await self.pubsub.publish(namespace, payload)
 
     async def _listen(self):

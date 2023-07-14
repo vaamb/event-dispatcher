@@ -356,7 +356,7 @@ class Dispatcher:
             namespace: str | None = None,
             ttl: int | None = None,
             **kwargs
-    ) -> None:
+    ) -> bool:
         """Emit an event to a single or multiple namespace(s)
 
         :param event: The event name.
@@ -365,6 +365,8 @@ class Dispatcher:
         :param room: An alias to `to`
         :param namespace: The namespace to which the event will be sent.
         :param ttl: Time to live of the message. Only available with rabbitmq
+
+        :return: True for success, False for failure
         """
         if isinstance(namespace, str):
             namespace = namespace.strip("/")
@@ -372,7 +374,12 @@ class Dispatcher:
         room = to or room
         payload: PayloadDict = self._generate_payload(event, room, data)
         payload: bytes = Serializer.dumps(payload)
-        self._publish(namespace, payload, ttl)
+        try:
+            self._publish(namespace, payload, ttl)
+            return True
+        except ConnectionError:
+            self._connected.clear()
+            return False
 
     def start_background_task(self, target: Callable, *args) -> Thread:
         """Override to use another threading method"""
@@ -638,7 +645,7 @@ class AsyncDispatcher(Dispatcher):
             namespace: str | None = None,
             ttl: int | None = None,
             **kwargs
-    ) -> None:
+    ) -> bool:
         """Emit an event to a single or multiple namespace(s)
 
         :param event: The event name.
@@ -647,6 +654,8 @@ class AsyncDispatcher(Dispatcher):
         :param room: An alias to `to`
         :param namespace: The namespace to which the event will be sent.
         :param ttl: Time to live of the message. Only available with rabbitmq
+
+        :return: True for success, False for failure
         """
         if isinstance(namespace, str):
             namespace = namespace.strip("/")
@@ -654,7 +663,12 @@ class AsyncDispatcher(Dispatcher):
         room = to or room
         payload: PayloadDict = self._generate_payload(event, room, data)
         payload: bytes = Serializer.dumps(payload)
-        await self._publish(namespace, payload, ttl)
+        try:
+            await self._publish(namespace, payload, ttl)
+            return True
+        except ConnectionError:
+            self._connected.clear()
+            return False
 
     def start_background_task(self, target: Callable, *args, **kwargs):
         """Override to use another threading method"""

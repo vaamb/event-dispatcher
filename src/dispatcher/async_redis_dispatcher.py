@@ -81,9 +81,16 @@ class AsyncRedisDispatcher(AsyncDispatcher):
         for key in extra_routing_keys:
             self.pubsub.subscribe(key)
 
-    async def _publish(self, namespace: str, payload: bytes,
-                       ttl: int | None = None) -> int:
-        return await self.redis.publish(namespace, payload)
+    async def _publish(
+            self,
+            namespace: str,
+            payload: bytes,
+            ttl: int | None = None
+    ) -> int:
+        try:
+            return await self.redis.publish(namespace, payload)
+        except Exception:
+            raise ConnectionError("Failed to publish payload")
 
     async def _listen(self):
         while True:

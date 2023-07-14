@@ -81,7 +81,10 @@ class RedisDispatcher(Dispatcher):
             payload: bytes,
             ttl: int | None = None
     ) -> int:
-        return self.redis.publish(namespace, payload)
+        try:
+            return self.redis.publish(namespace, payload)
+        except Exception:
+            raise ConnectionError("Failed to publish payload")
 
     def _listen(self):
         while True:
