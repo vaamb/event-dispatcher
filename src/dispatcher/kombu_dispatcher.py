@@ -103,7 +103,8 @@ class KombuDispatcher(Dispatcher):
                 producer.publish(
                     payload, routing_key=namespace, expiration=ttl, retry=True)
             channel.release()
-        except Exception:
+        except Exception as e:
+            self.logger.error(f"{e.__class__.__name__}: {e}")
             raise ConnectionError("Failed to publish payload")
 
     def _listen(self):
@@ -118,5 +119,6 @@ class KombuDispatcher(Dispatcher):
                         message = queue.get(block=True)
                         message.ack()
                         yield message.payload
-            except Exception:  # noqa
+            except Exception as e:  # noqa
+                self.logger.error(f"{e.__class__.__name__}: {e}")
                 raise ConnectionError

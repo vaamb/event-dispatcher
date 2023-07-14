@@ -119,7 +119,8 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
                     ),
                     routing_key=namespace
                 )
-        except Exception:
+        except Exception as e:
+            self.logger.error(f"{e.__class__.__name__}: {e}")
             raise ConnectionError("Failed to publish payload")
 
     async def _listen(self):
@@ -138,5 +139,6 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
                     async for message in queue_iter:
                         async with message.process():
                             yield message.body
-            except Exception:  # noqa
+            except Exception as e:  # noqa
+                self.logger.error(f"{e.__class__.__name__}: {e}")
                 raise ConnectionError

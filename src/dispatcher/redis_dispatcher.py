@@ -83,7 +83,8 @@ class RedisDispatcher(Dispatcher):
     ) -> int:
         try:
             return self.redis.publish(namespace, payload)
-        except Exception:
+        except Exception as e:
+            self.logger.error(f"{e.__class__.__name__}: {e}")
             raise ConnectionError("Failed to publish payload")
 
     def _listen(self):
@@ -96,5 +97,6 @@ class RedisDispatcher(Dispatcher):
                 for message in self.pubsub.listen():
                     if "data" in message:
                         yield message["data"]
-            except Exception:  # noqa
+            except Exception as e:  # noqa
+                self.logger.error(f"{e.__class__.__name__}: {e}")
                 raise ConnectionError

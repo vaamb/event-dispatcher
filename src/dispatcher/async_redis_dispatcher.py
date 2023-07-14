@@ -89,7 +89,8 @@ class AsyncRedisDispatcher(AsyncDispatcher):
     ) -> int:
         try:
             return await self.redis.publish(namespace, payload)
-        except Exception:
+        except Exception as e:
+            self.logger.error(f"{e.__class__.__name__}: {e}")
             raise ConnectionError("Failed to publish payload")
 
     async def _listen(self):
@@ -101,5 +102,6 @@ class AsyncRedisDispatcher(AsyncDispatcher):
                 async for message in self.pubsub.listen():
                     if "data" in message:
                         yield message["data"]
-            except RedisError:
+            except Exception as e:  # noqa
+                self.logger.error(f"{e.__class__.__name__}: {e}")
                 raise ConnectionError
