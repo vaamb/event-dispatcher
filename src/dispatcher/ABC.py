@@ -5,7 +5,8 @@ from collections.abc import Callable
 import inspect
 import logging
 from threading import Event, Thread
-from typing import AsyncIterable, Iterable
+import time
+from typing import AsyncIterable, Iterable, TypedDict
 import uuid
 
 from .context_var_wrapper import ContextVarWrapper
@@ -15,6 +16,16 @@ from .serializer import Serializer
 
 
 data_type: dict | list | str | tuple | None
+
+
+class MinimumPayloadDict(TypedDict):
+    event: str
+    host_uid: str
+
+
+class PayloadDict(MinimumPayloadDict):
+    room: str | None
+    data: dict | list | str | tuple | None
 
 
 STOP_SIGNAL = "__STOP__"
@@ -28,7 +39,8 @@ class Dispatcher:
     def __init__(
             self,
             namespace: str,
-            parent_logger: logging.Logger = None
+            parent_logger: logging.Logger = None,
+            reconnection: bool = True,
     ) -> None:
         """Base class for a python-socketio inspired event dispatcher.
 
@@ -41,21 +53,37 @@ class Dispatcher:
             logger = parent_logger.getChild(namespace)
         self.namespace = namespace.strip("/")
         self.logger = logger or logging.getLogger(f"dispatcher.{namespace}")
+        self.reconnection = reconnection
         self.host_uid = uuid.uuid4().hex
         self.rooms = set()
         self.rooms.add(self.host_uid)
         self._running = Event()
+        self._connected = Event()
+        self._reconnecting = Event()
         self.event_handlers: set[EventHandler] = set()
         self.handlers: dict[str: Callable] = {}
         self._fallback = None
         self._sessions = {}
+        self._threads: dict[str, Thread] | None = {}
 
     def __repr__(self):
-        return f"<{self.__class__.__name__}({self.namespace}, running={self.running})>"
+        return (
+            f"<{self.__class__.__name__}({self.namespace}, "
+            f"running={self.running}, connected={self.connected})>"
+        )
 
     @property
-    def running(self):
-        return self._running.is_set()
+    def threads(self) -> dict[str, Thread]:
+        if not self.asyncio_based:
+            return self._threads
+        raise AttributeError("AsyncDispatcher do not have threads")
+
+    # Methods to implement based on broker used
+    def _broker_reachable(self) -> bool:
+        """Check if it is possible to connect to the broker."""
+        raise NotImplementedError(
+            "This method needs to be implemented in a subclass"
+        )
 
     def _publish(self, namespace: str, payload: bytes,
                  ttl: int | None = None) -> None:
@@ -70,6 +98,36 @@ class Dispatcher:
             "This method needs to be implemented in a subclass"
         )
 
+    # Handling of broker-connection related events
+    def _handle_broker_connect(self) -> None:
+        if not self.connected:
+            self._trigger_connect_event()
+        self._connected.set()
+
+    def _handle_broker_disconnect(self) -> None:
+        time.sleep(0)
+        if self.connected:
+            self._trigger_disconnect_event()
+        self._connected.clear()
+
+    # Handling stop signal
+    def _handle_stop_signal(self, *args, **kwargs) -> None:
+        self._running.clear()
+
+    # Payload-related methods
+    def _generate_payload(
+            self,
+            event: str,
+            room: str | None = None,
+            data: data_type = None,
+    ) -> MinimumPayloadDict | PayloadDict:
+        payload = {"event": event, "host_uid": self.host_uid}
+        if room:
+            payload.update({"room": room})
+        if data:
+            payload.update({"data": data})
+        return payload
+
     def _format_data(self, data: data_type) -> list:
         if isinstance(data, tuple):
             return list(data)
@@ -77,40 +135,13 @@ class Dispatcher:
             return []
         return [data]
 
-    def _thread(self) -> None:
-        while self._running.is_set():
-            try:
-                for payload in self._listen():
-                    if isinstance(payload, dict):
-                        message = payload
-                    else:
-                        message = Serializer.loads(payload)
-                    event = message["event"]
-                    room = self.host_uid  # TODO: fix  message.get("room", self.host_uid)
-                    if room in self.rooms:
-                        sid = message["host_uid"]
-                        context.sid = sid
-                        data: data_type = message.get("data")
-                        data: list = self._format_data(data)
-                        self._trigger_event(event, sid, *data)
-                        del context.sid
-            except StopEvent:
-                break
-            except Exception as e:
-                self.logger.error(
-                    f"Encountered an error. Error msg: "
-                    f"`{e.__class__.__name__}: {e}`"
-                )
-
-    def _stop_signal_handler(self, *args, **kwargs) -> None:
-        self._running.clear()
-
-    def _handle_connect(self):
+    # Events triggering
+    def _trigger_connect_event(self):
         return self._trigger_event(
             "connect", "sid", {"REMOTE_ADDR": self.namespace}
         )
 
-    def _handle_disconnect(self):
+    def _trigger_disconnect_event(self):
         return self._trigger_event("disconnect", "sid")
 
     def _get_event_handler(self, event: str):
@@ -135,7 +166,7 @@ class Dispatcher:
     ) -> None:
         try:
             if event == STOP_SIGNAL:
-                self._stop_signal_handler()
+                self._handle_stop_signal()
                 raise StopEvent
             else:
                 event_handler = self._get_event_handler(event)
@@ -154,26 +185,91 @@ class Dispatcher:
                 f"msg: `{e.__class__.__name__}: {e}`"
             )
 
+    # Loops running once `run()` is called
+    def _reconnection_loop(self) -> None:
+        self._reconnecting.set()
+        retry_sleep = 1
+        while self._reconnecting.is_set():
+            connected = self._broker_reachable()
+            if connected:
+                self._reconnecting.clear()
+                self._handle_broker_connect()
+                break
+            else:
+                self.logger.debug(
+                    f"Reconnection attempt failed. Retrying in {retry_sleep} s")
+                time.sleep(retry_sleep)
+                retry_sleep *= 2
+                if retry_sleep > 60:
+                    retry_sleep = 60
+
+    def _listen_loop(self) -> None:
+        while self.running and self.connected:
+            try:
+                for payload in self._listen():
+                    message: MinimumPayloadDict | PayloadDict
+                    if isinstance(payload, dict):
+                        message = payload
+                    else:
+                        message = Serializer.loads(payload)
+                    event: str = message["event"]
+                    room: str = message.get("room", self.host_uid)
+                    if room in self.rooms:
+                        sid: str = message["host_uid"]
+                        context.sid = sid
+                        data: data_type = message.get("data")
+                        data: list = self._format_data(data)
+                        try:
+                            self._trigger_event(event, sid, *data)
+                        except Exception as e:
+                            self.logger.error(
+                                f"Encountered an error when trying to trigger "
+                                f"event {event}. Error msg: "
+                                f"`{e.__class__.__name__}: {e}`")
+                        else:
+                            del context.sid
+                    time.sleep(0)
+            except StopEvent:
+                self._running.clear()
+                raise
+            except ConnectionError:
+                self._connected.clear()
+                self._trigger_disconnect_event()
+                raise
+
+    def _master_loop(self) -> None:
+        while self._running.is_set():
+            try:
+                self._listen_loop()
+            except StopEvent:
+                self._running.clear()
+                break
+            except ConnectionError:
+                self._handle_broker_disconnect()
+                # Try to reconnect if needed
+                if self.reconnection:
+                    self.logger.warning("Connection lost, will try to reconnect")
+                    self._reconnection_loop()
+                else:
+                    self.logger.warning("Connection lost, stopping")
+                    self._running.clear()
+                    break
+
     """
     API calls
     """
+    @property
+    def running(self):
+        return self._running.is_set()
+
+    @property
+    def connected(self):
+        return self._connected.is_set()
+
     def initialize(self) -> None:
         """Method to call other methods just before starting the background thread.
         """
         pass
-
-    def generate_payload(
-            self,
-            event: str,
-            room: str | None = None,
-            data: data_type = None,
-    ) -> dict:
-        payload = {"event": event, "host_uid": self.host_uid}
-        if room:
-            payload.update({"room": room})
-        if data:
-            payload.update({"data": data})
-        return payload
 
     @property
     def fallback(self) -> Callable:
@@ -260,7 +356,7 @@ class Dispatcher:
             namespace: str | None = None,
             ttl: int | None = None,
             **kwargs
-    ) -> None:
+    ) -> bool:
         """Emit an event to a single or multiple namespace(s)
 
         :param event: The event name.
@@ -269,38 +365,80 @@ class Dispatcher:
         :param room: An alias to `to`
         :param namespace: The namespace to which the event will be sent.
         :param ttl: Time to live of the message. Only available with rabbitmq
+
+        :return: True for success, False for failure
         """
         if isinstance(namespace, str):
             namespace = namespace.strip("/")
         namespace = namespace or "root"
         room = to or room
-        payload: dict = self.generate_payload(event, room, data)
+        payload: PayloadDict = self._generate_payload(event, room, data)
         payload: bytes = Serializer.dumps(payload)
-        self._publish(namespace, payload, ttl)
+        try:
+            self._publish(namespace, payload, ttl)
+            return True
+        except ConnectionError:
+            self._connected.clear()
+            return False
 
     def start_background_task(self, target: Callable, *args) -> Thread:
         """Override to use another threading method"""
         t = Thread(target=target, args=args)
         t.start()
-        if not hasattr(self, "threads"):
-            self.threads = {}
-        self.threads[target.__name__] = t
+        self._threads[target.__name__] = t
         return t
 
-    def start(self) -> None:
-        """Start to dispatch events."""
-        if self._running.is_set():
-            return
+    def connect(self, retry: bool = False, wait: bool = True):
+        """Connect to the event dispatcher broker.
+
+        :param retry: Retry to connect if the initial connection attempt failed.
+        :param wait: In case the dispatcher tries to reconnect after a failed
+                     initial attempt, block until the connection is made.
+        """
+        if self.connected:
+            raise RuntimeError("Already connected")
         self.initialize()
+        connected = self._broker_reachable()
+        if connected:
+            self._handle_broker_connect()
+        else:
+            if retry:
+                if wait:
+                    self._reconnection_loop()
+                else:
+                    self.start_background_task(target=self._reconnection_loop)
+            else:
+                raise ConnectionError("Cannot connect to the broker")
+
+    def wait(self) -> None:
+        """Wait until the connection is lost and reconnection is not attempted
+        or the process is explicitly stopped with `stop()`."""
+        while self.running:
+            time.sleep(1)
+
+    def run(self, block: bool = False) -> None:
+        """Run the main loop that listens to new messages coming from the
+         broker and triggers the registered events."""
+        if self.running:
+            raise RuntimeError("Already running")
         self._running.set()
-        self._handle_connect()
-        self.start_background_task(target=self._thread)
+        self.start_background_task(target=self._master_loop)
+        if block:
+            self.wait()
+
+    def start(self, retry: bool = False, block: bool = True) -> None:
+        """Start to dispatch and receive events."""
+        self.connect(retry, block)
+        self.run()
+        if block:
+            self.wait()
 
     def stop(self) -> None:
         """Stop to dispatch events."""
+        self._reconnecting.clear()
         self.emit(STOP_SIGNAL, room=self.host_uid, namespace=self.namespace)
-        for thread in self.threads:
-            self.threads[thread].join()
+        for thread in self._threads:
+            self._threads[thread].join()
 
 
 class AsyncDispatcher(Dispatcher):
@@ -309,10 +447,19 @@ class AsyncDispatcher(Dispatcher):
     def __init__(
             self,
             namespace: str,
-            parent_logger: logging.Logger = None
+            parent_logger: logging.Logger = None,
+            reconnection: bool = True,
     ) -> None:
-        super().__init__(namespace, parent_logger)
+        super().__init__(namespace, parent_logger, reconnection)
         self._running = asyncio.Event()
+        self._connected = asyncio.Event()
+        self._reconnecting = asyncio.Event()
+
+    async def _broker_reachable(self) -> bool:
+        """Check if it is possible to connect to the broker."""
+        raise NotImplementedError(
+            "This method needs to be implemented in a subclass"
+        )
 
     async def _publish(self, namespace: str, payload: bytes,
                        ttl: int | None = None) -> None:
@@ -327,37 +474,25 @@ class AsyncDispatcher(Dispatcher):
             "This method needs to be implemented in a subclass"
         )
 
-    async def _thread(self) -> None:
-        while self._running.is_set():
-            try:
-                async for payload in self._listen():
-                    if isinstance(payload, dict):
-                        message = payload
-                    else:
-                        message = Serializer.loads(payload)
-                    event = message["event"]
-                    room = self.host_uid  # TODO: fix  message.get("room", self.host_uid)
-                    if room in self.rooms:
-                        sid = message["host_uid"]
-                        context.sid = sid
-                        data: data_type = message.get("data")
-                        data: list = self._format_data(data)
-                        await self._trigger_event(event, sid, *data)
-                        del context.sid
-            except StopEvent:
-                break
-            except Exception as e:
-                self.logger.error(
-                    f"Encountered an error. Error msg: "
-                    f"`{e.__class__.__name__}: {e}`"
-                )
+    async def _handle_broker_connect(self) -> None:
+        self._reconnecting.clear()
+        if not self.connected:
+            await self._trigger_connect_event()
+        self._connected.set()
 
-    async def _handle_connect(self):
+    async def _handle_broker_disconnect(self) -> None:
+        await asyncio.sleep(0)
+        if self.connected:
+            await self._trigger_disconnect_event()
+        self._connected.clear()
+
+    # Events triggering
+    async def _trigger_connect_event(self):
         return await self._trigger_event(
             "connect", "sid", {"REMOTE_ADDR": self.namespace}
         )
 
-    async def _handle_disconnect(self):
+    async def _trigger_disconnect_event(self):
         return await self._trigger_event("disconnect", "sid")
 
     async def _trigger_event(
@@ -368,7 +503,7 @@ class AsyncDispatcher(Dispatcher):
     ) -> None:
         try:
             if event == STOP_SIGNAL:
-                self._stop_signal_handler()
+                self._handle_stop_signal()
                 raise StopEvent
             else:
                 event_handler = self._get_event_handler(event)
@@ -396,6 +531,78 @@ class AsyncDispatcher(Dispatcher):
                 f"msg: `{e.__class__.__name__}: {e}`"
             )
 
+    # Tasks running once `run()` is called
+    async def _reconnection_loop(self) -> None:
+        self._reconnecting.set()
+        retry_sleep = 1
+        while self._reconnecting.is_set():
+            connected = await self._broker_reachable()
+            if connected:
+                self._reconnecting.clear()
+                await self._handle_broker_connect()
+                break
+            else:
+                self.logger.debug(
+                    f"Reconnection attempt failed. Retrying in {retry_sleep} s")
+                await asyncio.sleep(retry_sleep)
+                retry_sleep *= 2
+                if retry_sleep > 60:
+                    retry_sleep = 60
+
+    async def _listen_loop(self) -> None:
+        while self.running and self.connected:
+            try:
+                async for payload in self._listen():
+                    message: MinimumPayloadDict | PayloadDict
+                    if isinstance(payload, dict):
+                        message = payload
+                    else:
+                        message = Serializer.loads(payload)
+                    event: str = message["event"]
+                    room: str = message.get("room", self.host_uid)
+                    if room in self.rooms:
+                        sid: str = message["host_uid"]
+                        context.sid = sid
+                        data: data_type = message.get("data")
+                        data: list = self._format_data(data)
+                        try:
+                            await self._trigger_event(event, sid, *data)
+                        except Exception as e:
+                            self.logger.error(
+                                f"Encountered an error when trying to trigger "
+                                f"event {event}. Error msg: "
+                                f"`{e.__class__.__name__}: {e}`")
+                        del context.sid
+                    await asyncio.sleep(0)
+            except StopEvent:
+                self._running.clear()
+                raise
+            except ConnectionError:
+                self._connected.clear()
+                await self._trigger_disconnect_event()
+                raise
+
+    async def _master_loop(self) -> None:
+        while self._running.is_set():
+            try:
+                await self._listen_loop()
+            except StopEvent:
+                self._running.clear()
+                break
+            except ConnectionError:
+                await self._handle_broker_disconnect()
+                # Try to reconnect if needed
+                if self.reconnection:
+                    self.logger.warning("Connection lost, will try to reconnect")
+                    await self._reconnection_loop()
+                else:
+                    self.logger.warning("Connection lost, stopping")
+                    self._running.clear()
+                    break
+
+    """
+    API
+    """
     async def initialize(self) -> None:
         """Method to call other methods just before starting the background thread.
         """
@@ -439,7 +646,7 @@ class AsyncDispatcher(Dispatcher):
             namespace: str | None = None,
             ttl: int | None = None,
             **kwargs
-    ) -> None:
+    ) -> bool:
         """Emit an event to a single or multiple namespace(s)
 
         :param event: The event name.
@@ -448,35 +655,76 @@ class AsyncDispatcher(Dispatcher):
         :param room: An alias to `to`
         :param namespace: The namespace to which the event will be sent.
         :param ttl: Time to live of the message. Only available with rabbitmq
+
+        :return: True for success, False for failure
         """
         if isinstance(namespace, str):
             namespace = namespace.strip("/")
         namespace = namespace or "root"
         room = to or room
-        payload: dict = self.generate_payload(event, room, data)
+        payload: PayloadDict = self._generate_payload(event, room, data)
         payload: bytes = Serializer.dumps(payload)
-        await self._publish(namespace, payload, ttl)
+        try:
+            await self._publish(namespace, payload, ttl)
+            return True
+        except ConnectionError:
+            self._connected.clear()
+            return False
 
     def start_background_task(self, target: Callable, *args, **kwargs):
         """Override to use another threading method"""
         loop = kwargs.pop("loop", None)
         return asyncio.ensure_future(target(*args, **kwargs), loop=loop)
 
-    def start(self, loop=None) -> None:
-        """Start to dispatch events."""
-        if self._running.is_set():
-            return
+    async def connect(self, retry: bool = False, wait: bool = True):
+        """Connect to the event dispatcher broker.
 
-        async def inner_fct():
-            await self.initialize()
-            self._running.set()
-            await self._handle_connect()
-            self.start_background_task(self._thread, loop=loop)
+        :param retry: Retry to connect if the initial connection attempt failed.
+        :param wait: In case the dispatcher tries to reconnect after a failed
+                     initial attempt, block until the connection is made.
+        """
+        await self.initialize()
+        connected = await self._broker_reachable()
+        if connected:
+            await self._handle_broker_connect()
+        else:
+            if retry:
+                if wait:
+                    await self._reconnection_loop()
+                else:
+                    self.start_background_task(target=self._reconnection_loop)
+            else:
+                raise ConnectionError("Cannot connect to the broker")
 
-        asyncio.ensure_future(inner_fct())
+    async def wait(self) -> None:
+        """Wait until the connection is lost and reconnection is not attempted
+        or the process is explicitly stopped with `stop()`."""
+        while self.running:
+            await asyncio.sleep(1)
+
+    async def run(self, block: bool = True) -> None:
+        """Run the main loop that listens to new messages coming from the
+         broker and triggers the registered events."""
+        if self.running:
+            raise RuntimeError("Already running")
+        self._running.set()
+        self.start_background_task(target=self._master_loop)
+        if block:
+            await self.wait()
+
+    def start(self, retry: bool = False, block: bool = True) -> None:
+        """Start to dispatch and receive events."""
+        async def async_wrapper():
+            await self.connect(retry=retry, wait=True)
+            await self.run()
+            if block:
+                await self.wait()
+
+        asyncio.ensure_future(async_wrapper())
 
     def stop(self) -> None:
         """Stop to dispatch events."""
-        asyncio.ensure_future(
-            self.emit(STOP_SIGNAL, room=self.host_uid, namespace=self.namespace)
-        )
+        self._reconnecting.clear()
+        self.emit(STOP_SIGNAL, room=self.host_uid, namespace=self.namespace)
+        for thread in self._threads:
+            self._threads[thread].join()

@@ -4,10 +4,10 @@ import inspect
 import logging
 from typing import Type, Union
 
-from .async_base_dispatcher import AsyncBaseDispatcher
+from .async_in_memory_dispatcher import AsyncInMemoryDispatcher
 from .async_amqp_dispatcher import AsyncAMQPDispatcher
 from .async_redis_dispatcher import AsyncRedisDispatcher
-from .base_dispatcher import BaseDispatcher
+from .in_memory_dispatcher import InMemoryDispatcher
 from .kombu_dispatcher import KombuDispatcher
 from .ABC import AsyncDispatcher, Dispatcher
 
@@ -94,9 +94,9 @@ def get_dispatcher(
     server = url[:url.index("://")]
     if server == "memory":
         if not async_based:
-            return BaseDispatcher(namespace, parent_logger=logger)
+            return InMemoryDispatcher(namespace, parent_logger=logger)
         else:
-            return AsyncBaseDispatcher(namespace, parent_logger=logger)
+            return AsyncInMemoryDispatcher(namespace, parent_logger=logger)
     elif server == "kombuMemory":
         if kombu is None:
             raise RuntimeError(
@@ -120,7 +120,7 @@ def get_dispatcher(
             f"{server} is not supported. Either use a message broker supported "
             f"by kombu or use 'memory://'. Falling back to in-memory dispatcher"
         )
-        return BaseDispatcher(namespace, parent_logger=logger)
+        return InMemoryDispatcher(namespace, parent_logger=logger)
 
 
 class RegisterEventMixin:

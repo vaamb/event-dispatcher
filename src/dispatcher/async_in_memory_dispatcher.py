@@ -6,7 +6,7 @@ from ._pubsub import AsyncPubSub
 from .ABC import AsyncDispatcher
 
 
-class AsyncBaseDispatcher(AsyncDispatcher):
+class AsyncInMemoryDispatcher(AsyncDispatcher):
     """A simple in memory Pub Sub-based event dispatcher
 
     This class implements an event dispatcher using StupidPubSub as the message
@@ -26,8 +26,15 @@ class AsyncBaseDispatcher(AsyncDispatcher):
         self.pubsub = AsyncPubSub()
         super().__init__(namespace, parent_logger)
 
-    async def _publish(self, namespace: str, payload: bytes,
-                       ttl: int | None = None) -> int:
+    def _broker_reachable(self) -> bool:
+        return True
+
+    async def _publish(
+            self,
+            namespace: str,
+            payload: dict,
+            ttl: int | None = None
+    ) -> int:
         return await self.pubsub.publish(namespace, payload)
 
     async def _listen(self):

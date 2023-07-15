@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from asyncio import sleep
 import logging
 
 from .ABC import AsyncDispatcher
 
 try:
     import aio_pika
+    import aiormq
 except ImportError:
     aio_pika = None
+    aiormq = None
 
 
 class AsyncAMQPDispatcher(AsyncDispatcher):
@@ -48,6 +49,14 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
         self.listener_channel = None
         self.listener_queue = None
         self.__publisher_channel_pool = None
+
+    async def _broker_reachable(self) -> bool:
+        try:
+            await aio_pika.connect(self.url)
+        except aiormq.exceptions.AMQPConnectionError:
+            return False
+        else:
+            return True
 
     async def _connection(self) -> "aio_pika.RobustConnection":
         return await aio_pika.connect_robust(self.url)
@@ -100,18 +109,21 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
             payload: bytes,
             ttl: int | None = None
     ) -> None:
-        async with self._publisher_channel_pool.acquire() as channel:
-            exchange = await self._exchange(channel)
-            await exchange.publish(
-                aio_pika.Message(
-                    body=payload, delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
-                    expiration=ttl,
-                ),
-                routing_key=namespace
-            )
+        try:
+            async with self._publisher_channel_pool.acquire() as channel:
+                exchange = await self._exchange(channel)
+                await exchange.publish(
+                    aio_pika.Message(
+                        body=payload, delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                        expiration=ttl,
+                    ),
+                    routing_key=namespace
+                )
+        except Exception as e:
+            self.logger.error(f"{e.__class__.__name__}: {e}")
+            raise ConnectionError("Failed to publish payload")
 
     async def _listen(self):
-        retry_sleep = 1
         while True:
             try:
                 if self.listener_connection is None:
@@ -123,18 +135,10 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
                     self.listener_queue = await self._queue(
                         self.listener_channel, exchange
                     )
-                    retry_sleep = 1
                 async with self.listener_queue.iterator() as queue_iter:
                     async for message in queue_iter:
                         async with message.process():
                             yield message.body
-            except Exception:  # noqa
-                self.logger.error(
-                    f"Error while reading from rabbitmq queue. Retrying in "
-                    f"{retry_sleep} s"
-                )
-                self.listener_connection = None
-                await sleep(retry_sleep)
-                retry_sleep *= 2
-                if retry_sleep > 60:
-                    retry_sleep = 60
+            except Exception as e:  # noqa
+                self.logger.error(f"{e.__class__.__name__}: {e}")
+                raise ConnectionError

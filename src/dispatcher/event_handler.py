@@ -81,7 +81,7 @@ class EventHandler:
             namespace: str | None = None,
             ttl: int | None = None,
             **kwargs
-    ) -> None:
+    ) -> bool:
         """Emit an event to a single or multiple namespace(s)
 
         :param event: The event name.
@@ -90,6 +90,8 @@ class EventHandler:
         :param room: An alias to `to`
         :param namespace: The namespace to which the event will be sent.
         :param ttl: Time to live of the message. Only available with rabbitmq
+
+        :return: True for success, False for failure
         """
         if self._dispatcher is None:
             raise RuntimeError(
@@ -99,7 +101,7 @@ class EventHandler:
             namespace = namespace.strip("/")
         namespace = namespace or self.namespace
         room = to or room
-        self._dispatcher.emit(event, data, to, room, namespace, ttl, **kwargs)
+        return self._dispatcher.emit(event, data, to, room, namespace, ttl, **kwargs)
 
 
 class AsyncEventHandler(EventHandler):
@@ -139,7 +141,7 @@ class AsyncEventHandler(EventHandler):
             namespace: str | None = None,
             ttl: int | None = None,
             **kwargs
-    ) -> None:
+    ) -> bool:
         """Emit an event to a single or multiple namespace(s)
 
         :param event: The event name.
@@ -148,6 +150,8 @@ class AsyncEventHandler(EventHandler):
         :param room: An alias to `to`
         :param namespace: The namespace to which the event will be sent.
         :param ttl: Time to live of the message. Only available with rabbitmq
+
+        :return: True for success, False for failure
         """
         if self._dispatcher is None:
             raise RuntimeError(
@@ -157,4 +161,5 @@ class AsyncEventHandler(EventHandler):
             namespace = namespace.strip("/")
         namespace = namespace or self.namespace
         room = to or room
-        await self._dispatcher.emit(event, data, to, room, namespace, ttl, **kwargs)
+        resp = await self._dispatcher.emit(event, data, to, room, namespace, ttl, **kwargs)
+        return resp

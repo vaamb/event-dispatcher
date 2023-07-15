@@ -6,7 +6,7 @@ from ._pubsub import StupidPubSub
 from .ABC import Dispatcher
 
 
-class BaseDispatcher(Dispatcher):
+class InMemoryDispatcher(Dispatcher):
     """A simple in memory Pub Sub-based event dispatcher
 
     This class implements an event dispatcher using StupidPubSub as the message
@@ -28,8 +28,15 @@ class BaseDispatcher(Dispatcher):
         self.pubsub = StupidPubSub()
         super().__init__(namespace, parent_logger)
 
-    def _publish(self, namespace: str, payload: dict,
-                 ttl: int | None = None) -> int:
+    def _broker_reachable(self) -> bool:
+        return True
+
+    def _publish(
+            self,
+            namespace: str,
+            payload: dict,
+            ttl: int | None = None
+    ) -> int:
         return self.pubsub.publish(namespace, payload)
 
     def _listen(self):
