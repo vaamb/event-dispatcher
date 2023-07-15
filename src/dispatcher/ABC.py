@@ -105,6 +105,7 @@ class Dispatcher:
         self._connected.set()
 
     def _handle_broker_disconnect(self) -> None:
+        time.sleep(0)
         if self.connected:
             self._trigger_disconnect_event()
         self._connected.clear()
@@ -227,6 +228,7 @@ class Dispatcher:
                                 f"`{e.__class__.__name__}: {e}`")
                         else:
                             del context.sid
+                    time.sleep(0)
             except StopEvent:
                 self._running.clear()
                 raise
@@ -305,8 +307,7 @@ class Dispatcher:
         return _session_ctx_manager(self, sid, namespace)
 
     def disconnect(self, sid: str, namespace: str | None = None) -> None:
-        raise AttributeError()
-        # TODO
+        pass  # TODO
 
     def register_event_handler(self, event_handler: EventHandler) -> None:
         """Register an event handler."""
@@ -480,6 +481,7 @@ class AsyncDispatcher(Dispatcher):
         self._connected.set()
 
     async def _handle_broker_disconnect(self) -> None:
+        await asyncio.sleep(0)
         if self.connected:
             await self._trigger_disconnect_event()
         self._connected.clear()
@@ -542,7 +544,7 @@ class AsyncDispatcher(Dispatcher):
             else:
                 self.logger.debug(
                     f"Reconnection attempt failed. Retrying in {retry_sleep} s")
-                time.sleep(retry_sleep)
+                await asyncio.sleep(retry_sleep)
                 retry_sleep *= 2
                 if retry_sleep > 60:
                     retry_sleep = 60
@@ -571,6 +573,7 @@ class AsyncDispatcher(Dispatcher):
                                 f"event {event}. Error msg: "
                                 f"`{e.__class__.__name__}: {e}`")
                         del context.sid
+                    await asyncio.sleep(0)
             except StopEvent:
                 self._running.clear()
                 raise
@@ -623,8 +626,7 @@ class AsyncDispatcher(Dispatcher):
         return _session_ctx_manager(self, sid, namespace)
 
     async def disconnect(self, sid: str, namespace: str | None = None) -> None:
-        raise AttributeError()
-        # TODO
+        pass  # TODO
 
     def register_event_handler(self, event_handler: AsyncEventHandler) -> None:
         """Register an event handler."""
@@ -681,8 +683,6 @@ class AsyncDispatcher(Dispatcher):
         :param wait: In case the dispatcher tries to reconnect after a failed
                      initial attempt, block until the connection is made.
         """
-        if self.connected:
-            raise RuntimeError("Already connected")
         await self.initialize()
         connected = await self._broker_reachable()
         if connected:
