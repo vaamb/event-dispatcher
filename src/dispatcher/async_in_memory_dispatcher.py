@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import logging
 
-from ._pubsub import StupidPubSub
-from .ABC import Dispatcher
+from ._pubsub import AsyncPubSub
+from .ABC import AsyncDispatcher
 
 
-class BaseDispatcher(Dispatcher):
+class AsyncInMemoryDispatcher(AsyncDispatcher):
     """A simple in memory Pub Sub-based event dispatcher
 
     This class implements an event dispatcher using StupidPubSub as the message
@@ -15,8 +15,6 @@ class BaseDispatcher(Dispatcher):
 
     :param namespace: The name of the dispatcher the events will be sent from
                       and sent to
-    :param pubsub: A pub sub having at least the methods 'listen', 'publish' and
-                   'subscribe'
     :param parent_logger: A logging.Logger instance. The dispatcher logger
                           will be set to 'parent_logger.namespace'
     """
@@ -25,21 +23,30 @@ class BaseDispatcher(Dispatcher):
             namespace: str,
             parent_logger: logging.Logger = None
     ) -> None:
-        self.pubsub = StupidPubSub()
+        self.pubsub = AsyncPubSub()
         super().__init__(namespace, parent_logger)
 
     def _broker_reachable(self) -> bool:
         return True
 
-    def _publish(
+    async def _publish(
             self,
             namespace: str,
             payload: dict,
             ttl: int | None = None
     ) -> int:
-        return self.pubsub.publish(namespace, payload)
+        return await self.pubsub.publish(namespace, payload)
 
-    def _listen(self):
+    async def _listen(self):
         self.pubsub.subscribe(self.namespace)
-        for message in self.pubsub.listen():
-            yield message
+        while True:
+            try:
+                async for message in self.pubsub.listen():
+                    yield message
+            except Exception as e:
+                self.logger.exception(
+                    f"Error while reading from queue. Error msg: {e.args}"
+                )
+
+    async def initialize(self) -> None:
+        pass
