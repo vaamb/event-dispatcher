@@ -422,16 +422,21 @@ class Dispatcher:
         if self.running:
             raise RuntimeError("Already running")
         self._running.set()
-        self.start_background_task(target=self._master_loop)
         if block:
-            self.wait()
+            return self._master_loop()
+        else:
+            self.start_background_task(target=self._master_loop)
 
     def start(self, retry: bool = False, block: bool = True) -> None:
         """Start to dispatch and receive events."""
-        self.connect(retry, block)
-        self.run()
+        def wrap():
+            self.connect(retry=retry, wait=True)
+            self.run(block=True)
+
         if block:
-            self.wait()
+            return wrap()
+        else:
+            self.start_background_task(target=wrap)
 
     def stop(self) -> None:
         """Stop to dispatch events."""
