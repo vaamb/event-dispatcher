@@ -732,6 +732,9 @@ class AsyncDispatcher(Dispatcher):
     def stop(self) -> None:
         """Stop to dispatch events."""
         self._reconnecting.clear()
-        self.emit(STOP_SIGNAL, room=self.host_uid, namespace=self.namespace)
-        for thread in self._threads:
-            self._threads[thread].join()
+
+        async def async_wrapper():
+            await self.emit(
+                STOP_SIGNAL, room=self.host_uid, namespace=self.namespace)
+
+        asyncio.ensure_future(async_wrapper())
