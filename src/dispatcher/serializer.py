@@ -6,6 +6,7 @@ from typing import Any
 import uuid
 import warnings
 
+
 try:
     import orjson
 except ImportError:
@@ -35,8 +36,16 @@ except ImportError:
     def json_loads(obj: bytes | str) -> Any:
         return json.loads(obj)
 else:
+    def _orjson_default(o):
+        if (
+            isinstance(o, tuple)
+            and hasattr(o, "_fields")
+            # and hasattr(o, "_dict")  # Two first checks should be sufficient
+        ):
+            return tuple(o)
+
     def json_dumps(obj: Any) -> bytes:
-        return orjson.dumps(obj)
+        return orjson.dumps(obj, default=_orjson_default)
 
     def json_loads(obj: bytes | str) -> Any:
         return orjson.loads(obj)
