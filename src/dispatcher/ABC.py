@@ -189,6 +189,7 @@ class Dispatcher:
     def _reconnection_loop(self) -> None:
         self._reconnecting.set()
         retry_sleep = 1
+        time.sleep(1)
         while self._reconnecting.is_set():
             connected = self._broker_reachable()
             if connected:
@@ -540,6 +541,7 @@ class AsyncDispatcher(Dispatcher):
     async def _reconnection_loop(self) -> None:
         self._reconnecting.set()
         retry_sleep = 1
+        await asyncio.sleep(1)
         while self._reconnecting.is_set():
             connected = await self._broker_reachable()
             if connected:
