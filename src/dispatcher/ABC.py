@@ -189,10 +189,14 @@ class Dispatcher:
     def _reconnection_loop(self) -> None:
         self._reconnecting.set()
         retry_sleep = 1
+        self.logger.debug("Starting the reconnection loop in 1 sec")
         time.sleep(1)
         while self._reconnecting.is_set():
+            self.logger.debug(
+                    f"Attempting to reconnect to the message broker")
             connected = self._broker_reachable()
             if connected:
+                self.logger.debug(f"Reconnection successful")
                 self._reconnecting.clear()
                 self._handle_broker_connect()
                 break
@@ -205,8 +209,10 @@ class Dispatcher:
                     retry_sleep = 60
 
     def _listen_loop(self) -> None:
+        self.logger.debug("Starting the listening loop")
         while self.running and self.connected:
             try:
+                self.logger.debug("Waiting for messages")
                 for payload in self._listen():
                     message: MinimumPayloadDict | PayloadDict
                     if isinstance(payload, dict):
@@ -214,6 +220,7 @@ class Dispatcher:
                     else:
                         message = Serializer.loads(payload)
                     event: str = message["event"]
+                    self.logger.debug(f"Received event '{event}'")
                     room: str = message.get("room", self.host_uid)
                     if room in self.rooms:
                         sid: str = message["host_uid"]
@@ -541,10 +548,14 @@ class AsyncDispatcher(Dispatcher):
     async def _reconnection_loop(self) -> None:
         self._reconnecting.set()
         retry_sleep = 1
+        self.logger.debug("Starting the reconnection loop in 1 sec")
         await asyncio.sleep(1)
         while self._reconnecting.is_set():
+            self.logger.debug(
+                    f"Attempting to reconnect to the message broker")
             connected = await self._broker_reachable()
             if connected:
+                self.logger.debug(f"Reconnection successful")
                 self._reconnecting.clear()
                 await self._handle_broker_connect()
                 break
@@ -557,8 +568,10 @@ class AsyncDispatcher(Dispatcher):
                     retry_sleep = 60
 
     async def _listen_loop(self) -> None:
+        self.logger.debug("Starting the listening loop")
         while self.running and self.connected:
             try:
+                self.logger.debug("Waiting for messages")
                 async for payload in self._listen():
                     message: MinimumPayloadDict | PayloadDict
                     if isinstance(payload, dict):
@@ -566,6 +579,7 @@ class AsyncDispatcher(Dispatcher):
                     else:
                         message = Serializer.loads(payload)
                     event: str = message["event"]
+                    self.logger.debug(f"Received event '{event}'")
                     room: str = message.get("room", self.host_uid)
                     if room in self.rooms:
                         sid: str = message["host_uid"]
