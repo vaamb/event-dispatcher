@@ -21,11 +21,7 @@ except ImportError:
         if isinstance(o, date):
             return o.isoformat()
         if isinstance(o, time):
-            return (
-                datetime.combine(date.today(), o)
-                .astimezone(tz=timezone.utc)
-                .isoformat(timespec="seconds")
-            )
+            return str(o)
         if isinstance(o, uuid.UUID):
             return str(o)
 
