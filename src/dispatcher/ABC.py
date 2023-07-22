@@ -110,9 +110,11 @@ class Dispatcher:
             self._trigger_disconnect_event()
         self._connected.clear()
 
-    # Handling stop signal
     def _handle_stop_signal(self, *args, **kwargs) -> None:
+        self._handle_broker_disconnect()
         self._running.clear()
+        self._connected.clear()
+        self._reconnecting.clear()
 
     # Payload-related methods
     def _generate_payload(
@@ -136,10 +138,9 @@ class Dispatcher:
         return [data]
 
     # Events triggering
-    def _trigger_connect_event(self):
+    def _trigger_connect_event(self) -> None:
         return self._trigger_event(
-            "connect", "sid", {"REMOTE_ADDR": self.namespace}
-        )
+            "connect", "sid", {"REMOTE_ADDR": self.namespace})
 
     def _trigger_disconnect_event(self):
         return self._trigger_event("disconnect", "sid")
@@ -155,8 +156,7 @@ class Dispatcher:
         if self._fallback is not None:
             return self._fallback
         raise UnknownEvent(
-            f"Received unknown event '{event}' and no fallback function set"
-        )
+            f"Received unknown event '{event}' and no fallback function set")
 
     def _trigger_event(
             self,
@@ -187,18 +187,19 @@ class Dispatcher:
 
     # Loops running once `run()` is called
     def _reconnection_loop(self) -> None:
+        self._connected.clear()
         self._reconnecting.set()
         retry_sleep = 1
         self.logger.debug("Starting the reconnection loop in 1 sec")
-        time.sleep(1)
-        while self._reconnecting.is_set():
+        time.sleep(retry_sleep)
+        while self.reconnecting:
             self.logger.debug(
                     f"Attempting to reconnect to the message broker")
             connected = self._broker_reachable()
             if connected:
                 self.logger.debug(f"Reconnection successful")
-                self._reconnecting.clear()
                 self._handle_broker_connect()
+                self._reconnecting.clear()
                 break
             else:
                 self.logger.debug(
@@ -238,7 +239,6 @@ class Dispatcher:
                             del context.sid
                     time.sleep(0)
             except StopEvent:
-                self._running.clear()
                 raise
             except ConnectionError:
                 self._handle_broker_disconnect()
@@ -249,17 +249,15 @@ class Dispatcher:
             try:
                 self._listen_loop()
             except StopEvent:
-                self._running.clear()
                 break
             except ConnectionError:
-                self._handle_broker_disconnect()
                 # Try to reconnect if needed
                 if self.reconnection:
                     self.logger.warning("Connection lost, will try to reconnect")
                     self._reconnection_loop()
                 else:
                     self.logger.warning("Connection lost, stopping")
-                    self._running.clear()
+                    self._handle_stop_signal()
                     break
 
     """
@@ -272,6 +270,10 @@ class Dispatcher:
     @property
     def connected(self):
         return self._connected.is_set()
+
+    @property
+    def reconnecting(self):
+        return not self.connected and self._reconnecting.is_set()
 
     def initialize(self) -> None:
         """Method to call other methods just before starting the background thread.
@@ -446,10 +448,10 @@ class Dispatcher:
 
     def stop(self) -> None:
         """Stop to dispatch events."""
-        self._reconnecting.clear()
         self.emit(STOP_SIGNAL, room=self.host_uid, namespace=self.namespace)
-        for thread in self._threads:
-            self._threads[thread].join()
+        self._handle_stop_signal()
+        for thread in self._threads.values():
+            thread.join()
 
 
 class AsyncDispatcher(Dispatcher):
@@ -486,7 +488,6 @@ class AsyncDispatcher(Dispatcher):
         )
 
     async def _handle_broker_connect(self) -> None:
-        self._reconnecting.clear()
         if not self.connected:
             await self._trigger_connect_event()
         self._connected.set()
@@ -497,13 +498,18 @@ class AsyncDispatcher(Dispatcher):
             await self._trigger_disconnect_event()
         self._connected.clear()
 
-    # Events triggering
-    async def _trigger_connect_event(self):
-        return await self._trigger_event(
-            "connect", "sid", {"REMOTE_ADDR": self.namespace}
-        )
+    async def _handle_stop_signal(self, *args, **kwargs) -> None:
+        await self._handle_broker_disconnect()
+        self._running.clear()
+        self._connected.clear()
+        self._reconnecting.clear()
 
-    async def _trigger_disconnect_event(self):
+    # Events triggering
+    async def _trigger_connect_event(self) -> None:
+        return await self._trigger_event(
+            "connect", "sid", {"REMOTE_ADDR": self.namespace})
+
+    async def _trigger_disconnect_event(self) -> None:
         return await self._trigger_event("disconnect", "sid")
 
     async def _trigger_event(
@@ -514,7 +520,7 @@ class AsyncDispatcher(Dispatcher):
     ) -> None:
         try:
             if event == STOP_SIGNAL:
-                self._handle_stop_signal()
+                await self._handle_stop_signal()
                 raise StopEvent
             else:
                 event_handler = self._get_event_handler(event)
@@ -544,18 +550,19 @@ class AsyncDispatcher(Dispatcher):
 
     # Tasks running once `run()` is called
     async def _reconnection_loop(self) -> None:
+        self._connected.clear()
         self._reconnecting.set()
         retry_sleep = 1
         self.logger.debug("Starting the reconnection loop in 1 sec")
-        await asyncio.sleep(1)
-        while self._reconnecting.is_set():
+        await asyncio.sleep(retry_sleep)
+        while self.reconnecting:
             self.logger.debug(
                     f"Attempting to reconnect to the message broker")
             connected = await self._broker_reachable()
             if connected:
                 self.logger.debug(f"Reconnection successful")
-                self._reconnecting.clear()
                 await self._handle_broker_connect()
+                self._reconnecting.clear()
                 break
             else:
                 self.logger.debug(
@@ -594,7 +601,6 @@ class AsyncDispatcher(Dispatcher):
                         del context.sid
                     await asyncio.sleep(0)
             except StopEvent:
-                self._running.clear()
                 raise
             except ConnectionError:
                 await self._handle_broker_disconnect()
@@ -605,17 +611,15 @@ class AsyncDispatcher(Dispatcher):
             try:
                 await self._listen_loop()
             except StopEvent:
-                self._running.clear()
                 break
             except ConnectionError:
-                await self._handle_broker_disconnect()
                 # Try to reconnect if needed
                 if self.reconnection:
                     self.logger.warning("Connection lost, will try to reconnect")
                     await self._reconnection_loop()
                 else:
                     self.logger.warning("Connection lost, stopping")
-                    self._running.clear()
+                    await self._handle_stop_signal()
                     break
 
     """
@@ -741,10 +745,9 @@ class AsyncDispatcher(Dispatcher):
 
     def stop(self) -> None:
         """Stop to dispatch events."""
-        self._reconnecting.clear()
-
         async def async_wrapper():
             await self.emit(
                 STOP_SIGNAL, room=self.host_uid, namespace=self.namespace)
+            await self._handle_stop_signal()
 
         asyncio.ensure_future(async_wrapper())
