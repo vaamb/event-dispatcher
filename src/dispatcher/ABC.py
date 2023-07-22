@@ -241,8 +241,7 @@ class Dispatcher:
                 self._running.clear()
                 raise
             except ConnectionError:
-                self._connected.clear()
-                self._trigger_disconnect_event()
+                self._handle_broker_disconnect()
                 raise
 
     def _master_loop(self) -> None:
@@ -386,7 +385,6 @@ class Dispatcher:
             self._publish(namespace, payload, ttl)
             return True
         except ConnectionError:
-            self._connected.clear()
             return False
 
     def start_background_task(self, target: Callable, *args) -> Thread:
@@ -599,8 +597,7 @@ class AsyncDispatcher(Dispatcher):
                 self._running.clear()
                 raise
             except ConnectionError:
-                self._connected.clear()
-                await self._trigger_disconnect_event()
+                await self._handle_broker_disconnect()
                 raise
 
     async def _master_loop(self) -> None:
@@ -689,7 +686,6 @@ class AsyncDispatcher(Dispatcher):
             await self._publish(namespace, payload, ttl)
             return True
         except ConnectionError:
-            self._connected.clear()
             return False
 
     def start_background_task(self, target: Callable, *args, **kwargs):
