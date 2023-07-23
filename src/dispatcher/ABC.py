@@ -228,14 +228,17 @@ class Dispatcher:
                         context.sid = sid
                         data: data_type = message.get("data")
                         data: list = self._format_data(data)
+                        # User-defined functions should not crash the whole listening loop
                         try:
                             self._trigger_event(event, sid, *data)
+                        except StopEvent:
+                            raise
                         except Exception as e:
                             self.logger.error(
                                 f"Encountered an error when trying to trigger "
                                 f"event {event}. Error msg: "
                                 f"`{e.__class__.__name__}: {e}`")
-                        else:
+                        finally:
                             del context.sid
                     time.sleep(0)
             except StopEvent:
@@ -591,14 +594,18 @@ class AsyncDispatcher(Dispatcher):
                         context.sid = sid
                         data: data_type = message.get("data")
                         data: list = self._format_data(data)
+                        # User-defined functions should not crash the whole listening loop
                         try:
                             await self._trigger_event(event, sid, *data)
+                        except StopEvent:
+                            raise
                         except Exception as e:
                             self.logger.error(
                                 f"Encountered an error when trying to trigger "
                                 f"event {event}. Error msg: "
                                 f"`{e.__class__.__name__}: {e}`")
-                        del context.sid
+                        finally:
+                            del context.sid
                     await asyncio.sleep(0)
             except StopEvent:
                 raise
