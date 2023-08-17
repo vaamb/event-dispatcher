@@ -48,7 +48,8 @@ class KombuDispatcher(Dispatcher):
     def _broker_reachable(self) -> bool:
         try:
             self._connection().connect()
-        except Exception:
+        except Exception as e:
+            self.logger.warning(str(e))
             return False
         else:
             return True

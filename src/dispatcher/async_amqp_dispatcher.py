@@ -53,7 +53,8 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
     async def _broker_reachable(self) -> bool:
         try:
             await aio_pika.connect(self.url)
-        except aiormq.exceptions.AMQPConnectionError:
+        except Exception as e:
+            self.logger.warning(str(e))
             return False
         else:
             return True

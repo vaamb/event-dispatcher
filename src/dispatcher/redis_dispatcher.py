@@ -48,6 +48,7 @@ class RedisDispatcher(Dispatcher):
         try:
             redis.Redis.from_url(self.redis_url, **self.redis_options)
         except redis.ConnectionError as e:
+            self.logger.warning(str(e))
             return False
         else:
             return True

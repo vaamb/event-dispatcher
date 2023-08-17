@@ -54,7 +54,8 @@ class AsyncRedisDispatcher(AsyncDispatcher):
     def _broker_reachable(self) -> bool:
         try:
             aioredis.Redis.from_url(self.redis_url, **self.redis_options)
-        except RedisError:
+        except RedisError as e:
+            self.logger.warning(str(e))
             return False
         else:
             return True

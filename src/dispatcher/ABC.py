@@ -190,19 +190,19 @@ class Dispatcher:
         self._connected.clear()
         self._reconnecting.set()
         retry_sleep = 1
-        self.logger.debug("Starting the reconnection loop in 1 sec")
+        self.logger.info("Starting the reconnection loop in 1 sec")
         time.sleep(retry_sleep)
         while self.reconnecting:
-            self.logger.debug(
+            self.logger.info(
                     f"Attempting to reconnect to the message broker")
             connected = self._broker_reachable()
             if connected:
-                self.logger.debug(f"Reconnection successful")
+                self.logger.info(f"Reconnection successful")
                 self._handle_broker_connect()
                 self._reconnecting.clear()
                 break
             else:
-                self.logger.debug(
+                self.logger.info(
                     f"Reconnection attempt failed. Retrying in {retry_sleep} s")
                 time.sleep(retry_sleep)
                 retry_sleep *= 2
@@ -210,10 +210,10 @@ class Dispatcher:
                     retry_sleep = 60
 
     def _listen_loop(self) -> None:
-        self.logger.debug("Starting the listening loop")
+        self.logger.info("Starting the listening loop")
         while self.running and self.connected:
             try:
-                self.logger.debug("Waiting for messages")
+                self.logger.info("Waiting for messages")
                 for payload in self._listen():
                     message: MinimumPayloadDict | PayloadDict
                     if isinstance(payload, dict):
@@ -556,19 +556,19 @@ class AsyncDispatcher(Dispatcher):
         self._connected.clear()
         self._reconnecting.set()
         retry_sleep = 1
-        self.logger.debug("Starting the reconnection loop in 1 sec")
+        self.logger.info("Starting the reconnection loop in 1 sec")
         await asyncio.sleep(retry_sleep)
         while self.reconnecting:
-            self.logger.debug(
+            self.logger.info(
                     f"Attempting to reconnect to the message broker")
             connected = await self._broker_reachable()
             if connected:
-                self.logger.debug(f"Reconnection successful")
+                self.logger.info(f"Reconnection successful")
                 await self._handle_broker_connect()
                 self._reconnecting.clear()
                 break
             else:
-                self.logger.debug(
+                self.logger.info(
                     f"Reconnection attempt failed. Retrying in {retry_sleep} s")
                 await asyncio.sleep(retry_sleep)
                 retry_sleep *= 2
@@ -576,10 +576,10 @@ class AsyncDispatcher(Dispatcher):
                     retry_sleep = 60
 
     async def _listen_loop(self) -> None:
-        self.logger.debug("Starting the listening loop")
+        self.logger.info("Starting the listening loop")
         while self.running and self.connected:
             try:
-                self.logger.debug("Waiting for messages")
+                self.logger.info("Waiting for messages")
                 async for payload in self._listen():
                     message: MinimumPayloadDict | PayloadDict
                     if isinstance(payload, dict):
