@@ -86,7 +86,7 @@ class KombuDispatcher(Dispatcher):
             name=name, bindings=[
                 kombu.binding(self._exchange(), routing_key=key)
                 for key in routing_keys
-            ], expires=3600.0, message_ttl=60.0, **options
+            ], **options
         )
 
     def _error_callback(self, exception, interval):

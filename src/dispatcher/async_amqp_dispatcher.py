@@ -92,9 +92,7 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
         options = {**self.queue_options}
         name = options.pop("name", self.namespace)
         extra_routing_keys = options.pop("extra_routing_keys", [])
-        queue = await channel.declare_queue(
-            name, arguments={"x-expires": 3600000, "x-message-ttl": 60000},
-            **options)
+        queue = await channel.declare_queue(name, **options)
         await queue.bind(exchange, routing_key=self.namespace)
         if isinstance(extra_routing_keys, str):
             extra_routing_keys = [extra_routing_keys]
