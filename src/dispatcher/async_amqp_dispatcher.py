@@ -26,25 +26,29 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
     :param exchange_options: Options to pass to aio_pika exchange.
     :param queue_options: Options to pass to aio_pika queue.
     :param connection_options: Options to pass to aio_pika connection.
+    :param connection_options: Options to pass to aio_pika.Exchange().publish.
     """
     def __init__(
             self,
             namespace: str,
             url: str = "amqp://guest:guest@localhost:5672//",
             parent_logger: logging.Logger = None,
+            connection_options: dict = None,
             exchange_options: dict = None,
             queue_options: dict = None,
-            connection_options: dict = None,
+            publisher_options: dict = None,
+            publisher_pool_size: int = 10,
     ) -> None:
         if aio_pika is None:
             raise RuntimeError(
-                "Install 'aio_pika' package to use AsyncAMQPDispatcher"
-            )
+                "Install 'aio_pika' package to use AsyncAMQPDispatcher")
         super().__init__(namespace=namespace, parent_logger=parent_logger)
         self.url = url
+        self.connection_options = connection_options or {}
         self.exchange_options = exchange_options or {}
         self.queue_options = queue_options or {}
-        self.connection_options = connection_options or {}
+        self.publisher_options = publisher_options or {}
+        self.publisher_pool_size = publisher_pool_size or 10
         self.listener_connection = None
         self.listener_channel = None
         self.listener_queue = None
@@ -59,14 +63,14 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
         else:
             return True
 
-    async def _connection(self) -> "aio_pika.RobustConnection":
-        return await aio_pika.connect_robust(self.url)
+    async def _connection(self) -> "aio_pika.Connection":
+        return await aio_pika.connect(url=self.url, **self.connection_options)  # noqa
 
     async def _channel(
             self,
-            connection: "aio_pika.RobustConnection"
-    ) -> "aio_pika.RobustChannel":
-        return await connection.channel()
+            connection: "aio_pika.Connection"
+    ) -> "aio_pika.Channel":
+        return await connection.channel()  # noqa
 
     @property
     def _publisher_channel_pool(self) -> "aio_pika.pool.Pool":
@@ -77,13 +81,13 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
                 return channel
 
             self.__publisher_channel_pool = aio_pika.pool.Pool(
-                channel_constructor, max_size=10)
+                channel_constructor, max_size=self.publisher_pool_size)
         return self.__publisher_channel_pool
 
     async def _exchange(
             self,
-            channel: "aio_pika.RobustChannel"
-    ) -> "aio_pika.RobustExchange":
+            channel: "aio_pika.Channel"
+    ) -> "aio_pika.Exchange":
         options = {**self.exchange_options}
         name = options.pop("name", "dispatcher")
         return await channel.declare_exchange(name, **options)
@@ -113,10 +117,12 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
                 exchange = await self._exchange(channel)
                 await exchange.publish(
                     aio_pika.Message(
-                        body=payload, delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                        body=payload,
+                        delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
                         expiration=ttl,
                     ),
-                    routing_key=namespace
+                    routing_key=namespace,
+                    **self.publisher_options
                 )
         except Exception as e:
             self.logger.error(f"{e.__class__.__name__}: {e}")
@@ -128,16 +134,14 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
                 if self.listener_connection is None:
                     self.listener_connection = await self._connection()
                     self.listener_channel = await self._channel(
-                        self.listener_connection
-                    )
+                        self.listener_connection)
                     exchange = await self._exchange(self.listener_channel)
                     self.listener_queue = await self._queue(
-                        self.listener_channel, exchange
-                    )
+                        self.listener_channel, exchange)
                 async with self.listener_queue.iterator() as queue_iter:
                     async for message in queue_iter:
                         async with message.process():
                             yield message.body
             except Exception as e:  # noqa
                 self.logger.error(f"{e.__class__.__name__}: {e}")
-                raise ConnectionError
+                raise ConnectionError("Connection to broker lost")
