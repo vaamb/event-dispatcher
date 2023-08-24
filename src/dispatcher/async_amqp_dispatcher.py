@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import AsyncIterator
 
 from .ABC import AsyncDispatcher
 
@@ -120,6 +121,7 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
                         body=payload,
                         delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
                         expiration=ttl,
+                        content_type='application/binary', content_encoding='binary'
                     ),
                     routing_key=namespace,
                     **self.publisher_options
@@ -128,7 +130,7 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
             self.logger.error(f"{e.__class__.__name__}: {e}")
             raise ConnectionError("Failed to publish payload")
 
-    async def _listen(self):
+    async def _listen(self) -> AsyncIterator[bytes]:
         while True:
             try:
                 if self.listener_connection is None:
@@ -140,6 +142,7 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
                         self.listener_channel, exchange)
                 async with self.listener_queue.iterator() as queue_iter:
                     async for message in queue_iter:
+                        message: aio_pika.IncomingMessage
                         async with message.process():
                             yield message.body
             except Exception as e:  # noqa

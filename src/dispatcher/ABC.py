@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from functools import cached_property
 import inspect
 import logging
 from threading import Event, Thread
 import time
-from typing import AsyncIterable, Iterable, TypedDict
+from typing import AsyncIterator, Iterator, TypedDict
 import uuid
 
 from .context_var_wrapper import ContextVarWrapper
@@ -15,15 +16,12 @@ from .exceptions import StopEvent, UnknownEvent
 from .serializer import Serializer
 
 
-data_type: dict | list | str | tuple | None
+DataType: bytes | dict | list | str | tuple | None
 
 
-class MinimumPayloadDict(TypedDict):
-    event: str
+class PayloadDict(TypedDict):
     host_uid: str
-
-
-class PayloadDict(MinimumPayloadDict):
+    event: str
     room: str | None
     data: dict | list | str | tuple | None
 
@@ -35,6 +33,9 @@ context = ContextVarWrapper()
 
 class Dispatcher:
     asyncio_based = False
+    _PAYLOAD_SEPARATOR = b"|"
+    _DATA_OBJECT = b"\x31"  # 1
+    _DATA_BINARY = b"\x32"  # 2
 
     def __init__(
             self,
@@ -54,8 +55,8 @@ class Dispatcher:
         self.namespace = namespace.strip("/")
         self.logger = logger or logging.getLogger(f"dispatcher.{namespace}")
         self.reconnection = reconnection
-        self.host_uid = uuid.uuid4().hex
-        self.rooms = set()
+        self.host_uid: str = str(uuid.uuid4())
+        self.rooms: set[str] = set()
         self.rooms.add(self.host_uid)
         self._running = Event()
         self._connected = Event()
@@ -92,7 +93,7 @@ class Dispatcher:
             "This method needs to be implemented in a subclass"
         )
 
-    def _listen(self) -> Iterable:
+    def _listen(self) -> Iterator[bytes]:
         """Get a generator that yields payloads that will be parsed."""
         raise NotImplementedError(
             "This method needs to be implemented in a subclass"
@@ -117,20 +118,56 @@ class Dispatcher:
         self._reconnecting.clear()
 
     # Payload-related methods
+    @cached_property
+    def _DATA_OBJECT_SEPARATOR(self) -> bytes:
+        return self._PAYLOAD_SEPARATOR + self._DATA_OBJECT
+
+    @cached_property
+    def _DATA_BINARY_SEPARATOR(self) -> bytes:
+        return self._PAYLOAD_SEPARATOR + self._DATA_BINARY
+
+    def _encode_data(self, data: DataType) -> bytes:
+        if type(data) == type(bytes):
+            return self._DATA_BINARY_SEPARATOR + data
+        else:
+            return self._DATA_OBJECT_SEPARATOR + Serializer.dumps(data)
+
     def _generate_payload(
             self,
             event: str,
             room: str | None = None,
-            data: data_type = None,
-    ) -> MinimumPayloadDict | PayloadDict:
-        payload = {"event": event, "host_uid": self.host_uid}
-        if room:
-            payload.update({"room": room})
-        if data:
-            payload.update({"data": data})
-        return payload
+            data: DataType = None,
+    ) -> bytes:
+        return (
+            Serializer.dumps({
+                "host_uid": self.host_uid,
+                "event": event,
+                "room": room
+            }) +
+            self._encode_data(data)
+        )
 
-    def _format_data(self, data: data_type) -> list:
+    @classmethod
+    def _decode_data(cls, data: bytes) -> DataType:
+        data_type = data[:1]
+        if data_type == cls._DATA_OBJECT:
+            return Serializer.loads(data[1:])
+        elif data_type == cls._DATA_BINARY:
+            return data[1:]
+        else:
+            raise ValueError("Unknown type of data")
+
+    def _parse_payload(self, payload: bytes) -> PayloadDict:
+        base_info, base_data = payload.split(self._PAYLOAD_SEPARATOR, maxsplit=2)
+        info = Serializer.loads(base_info)
+        return PayloadDict(
+            host_uid=info["host_uid"],
+            event=info["event"],
+            room=(info["room"] if info["room"] is not None else self.host_uid),
+            data=self._decode_data(base_data)
+        )
+
+    def _data_as_list(self, data: DataType) -> list:
         if isinstance(data, tuple):
             return list(data)
         if data is None:
@@ -142,7 +179,7 @@ class Dispatcher:
         return self._trigger_event(
             "connect", "sid", {"REMOTE_ADDR": self.namespace})
 
-    def _trigger_disconnect_event(self):
+    def _trigger_disconnect_event(self) -> None:
         return self._trigger_event("disconnect", "sid")
 
     def _get_event_handler(self, event: str):
@@ -215,19 +252,15 @@ class Dispatcher:
             try:
                 self.logger.info("Waiting for messages")
                 for payload in self._listen():
-                    message: MinimumPayloadDict | PayloadDict
-                    if isinstance(payload, dict):
-                        message = payload
-                    else:
-                        message = Serializer.loads(payload)
+                    message: PayloadDict = self._parse_payload(payload)
                     event: str = message["event"]
                     self.logger.debug(f"Received event '{event}'")
-                    room: str = message.get("room", self.host_uid)
+                    room: str = message["room"]
                     if room in self.rooms:
                         sid: str = message["host_uid"]
                         context.sid = sid
-                        data: data_type = message.get("data")
-                        data: list = self._format_data(data)
+                        data: DataType = message["data"]
+                        data: list = self._data_as_list(data)
                         # User-defined functions should not crash the whole listening loop
                         try:
                             self._trigger_event(event, sid, *data)
@@ -362,7 +395,7 @@ class Dispatcher:
     def emit(
             self,
             event: str,
-            data: data_type = None,
+            data: DataType = None,
             to: str | None = None,
             room: str | None = None,
             namespace: str | None = None,
@@ -384,8 +417,7 @@ class Dispatcher:
             namespace = namespace.strip("/")
         namespace = namespace or "root"
         room = to or room
-        payload: PayloadDict = self._generate_payload(event, room, data)
-        payload: bytes = Serializer.dumps(payload)
+        payload: bytes = self._generate_payload(event, room, data)
         try:
             self._publish(namespace, payload, ttl)
             return True
@@ -451,7 +483,7 @@ class Dispatcher:
 
     def stop(self) -> None:
         """Stop to dispatch events."""
-        self.emit(STOP_SIGNAL, room=self.host_uid, namespace=self.namespace)
+        self.emit(STOP_SIGNAL, room=str(self.host_uid), namespace=self.namespace)
         self._handle_stop_signal()
         for thread in self._threads.values():
             thread.join()
@@ -484,7 +516,7 @@ class AsyncDispatcher(Dispatcher):
             "This method needs to be implemented in a subclass"
         )
 
-    async def _listen(self) -> AsyncIterable:
+    async def _listen(self) -> AsyncIterator[bytes]:
         """Get a generator that yields payloads that will be parsed."""
         raise NotImplementedError(
             "This method needs to be implemented in a subclass"
@@ -581,19 +613,15 @@ class AsyncDispatcher(Dispatcher):
             try:
                 self.logger.info("Waiting for messages")
                 async for payload in self._listen():
-                    message: MinimumPayloadDict | PayloadDict
-                    if isinstance(payload, dict):
-                        message = payload
-                    else:
-                        message = Serializer.loads(payload)
+                    message: PayloadDict = self._parse_payload(payload)
                     event: str = message["event"]
                     self.logger.debug(f"Received event '{event}'")
-                    room: str = message.get("room", self.host_uid)
+                    room: str = message["room"]
                     if room in self.rooms:
                         sid: str = message["host_uid"]
                         context.sid = sid
-                        data: data_type = message.get("data")
-                        data: list = self._format_data(data)
+                        data: DataType = message["data"]
+                        data: list = self._data_as_list(data)
                         # User-defined functions should not crash the whole listening loop
                         try:
                             await self._trigger_event(event, sid, *data)
@@ -669,7 +697,7 @@ class AsyncDispatcher(Dispatcher):
     async def emit(
             self,
             event: str,
-            data: data_type = None,
+            data: DataType = None,
             to: str | None = None,
             room: str | None = None,
             namespace: str | None = None,
@@ -691,8 +719,7 @@ class AsyncDispatcher(Dispatcher):
             namespace = namespace.strip("/")
         namespace = namespace or "root"
         room = to or room
-        payload: PayloadDict = self._generate_payload(event, room, data)
-        payload: bytes = Serializer.dumps(payload)
+        payload: bytes = self._generate_payload(event, room, data)
         try:
             await self._publish(namespace, payload, ttl)
             return True
@@ -754,7 +781,7 @@ class AsyncDispatcher(Dispatcher):
         """Stop to dispatch events."""
         async def async_wrapper():
             await self.emit(
-                STOP_SIGNAL, room=self.host_uid, namespace=self.namespace)
+                STOP_SIGNAL, room=str(self.host_uid), namespace=self.namespace)
             await self._handle_stop_signal()
 
         asyncio.ensure_future(async_wrapper())

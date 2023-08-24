@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Iterator
 
 try:
     import kombu
@@ -103,18 +104,19 @@ class KombuDispatcher(Dispatcher):
             payload: bytes,
             ttl: int | None = None
     ) -> None:
-        try:
+#        try:
             channel = self._publisher_channel_pool.acquire()
             with kombu.Producer(channel, exchange=self._exchange()) as producer:
                 producer.publish(
                     payload, routing_key=namespace, expiration=ttl,
+                    content_type='application/binary', content_encoding='binary',
                     **self.publisher_options)
             channel.release()
-        except Exception as e:
-            self.logger.error(f"{e.__class__.__name__}: {e}")
-            raise ConnectionError("Failed to publish payload")
+#        except Exception as e:
+#            self.logger.error(f"{e.__class__.__name__}: {e}")
+#            raise ConnectionError("Failed to publish payload")
 
-    def _listen(self):
+    def _listen(self) -> Iterator[bytes]:
         listener_queue = self._queue()
         while True:
             try:
@@ -123,9 +125,9 @@ class KombuDispatcher(Dispatcher):
                     self.listener_connection.connect()
                 with self.listener_connection.SimpleQueue(listener_queue) as queue:
                     while True:
-                        message = queue.get(block=True)
+                        message: kombu.Message = queue.get(block=True)
                         message.ack()
-                        yield message.payload
+                        yield message.body
             except Exception as e:  # noqa
                 self.logger.error(f"{e.__class__.__name__}: {e}")
                 raise ConnectionError("Connection to broker lost")

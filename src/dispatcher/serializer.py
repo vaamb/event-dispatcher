@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timezone
-import pickle
 from typing import Any
 import uuid
 import warnings
@@ -50,13 +49,8 @@ else:
 class Serializer:
     @staticmethod
     def dumps(obj: Any) -> bytes:
-        if isinstance(obj, bytes):
-            return pickle.dumps(obj)
         return json_dumps(obj)
 
     @staticmethod
     def loads(obj: bytes | str) -> Any:
-        try:
-            return pickle.loads(obj)
-        except (pickle.UnpicklingError, TypeError):
-            return json_loads(obj)
+        return json_loads(obj)
