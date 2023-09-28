@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from asyncio import Task
 from collections.abc import Callable
 from functools import cached_property
 import inspect
@@ -281,7 +282,7 @@ class Dispatcher:
                 raise
 
     def _master_loop(self) -> None:
-        while self._running.is_set():
+        while self.running:
             try:
                 self._listen_loop()
             except StopEvent:
@@ -424,11 +425,23 @@ class Dispatcher:
         except ConnectionError:
             return False
 
-    def start_background_task(self, target: Callable, *args) -> Thread:
+    def start_background_task(
+            self,
+            target: Callable,
+            *args,
+            task_name: str | None = None,
+            **kwargs
+    ) -> Thread:
         """Override to use another threading method"""
+        task_name = task_name or target.__name__
+        task = self._threads.get(task_name)
+        if task:
+            if task.is_alive():
+                raise ValueError(
+                    f"A background task named {task_name} is already running")
         t = Thread(target=target, args=args)
         t.start()
-        self._threads[target.__name__] = t
+        self._threads[task_name] = t
         return t
 
     def connect(self, retry: bool = False, wait: bool = True):
@@ -502,6 +515,7 @@ class AsyncDispatcher(Dispatcher):
         self._running = asyncio.Event()
         self._connected = asyncio.Event()
         self._reconnecting = asyncio.Event()
+        self._tasks: dict[str, Task] | None = {}
 
     async def _broker_reachable(self) -> bool:
         """Check if it is possible to connect to the broker."""
@@ -642,7 +656,7 @@ class AsyncDispatcher(Dispatcher):
                 raise
 
     async def _master_loop(self) -> None:
-        while self._running.is_set():
+        while self.running:
             try:
                 await self._listen_loop()
             except StopEvent:
@@ -726,10 +740,23 @@ class AsyncDispatcher(Dispatcher):
         except ConnectionError:
             return False
 
-    def start_background_task(self, target: Callable, *args, **kwargs):
-        """Override to use another threading method"""
-        loop = kwargs.pop("loop", None)
-        return asyncio.ensure_future(target(*args, **kwargs), loop=loop)
+    def start_background_task(
+            self,
+            target: Callable,
+            *args,
+            task_name: str | None = None,
+            **kwargs
+    ) -> Task:
+        """Override to use another concurrency method"""
+        task_name = task_name or target.__name__
+        task = self._tasks.get(task_name)
+        if task:
+            if not task.done():
+                raise ValueError(
+                    f"A background task named {task_name} is already running")
+        t = Task(target(*args))
+        self._tasks[task_name] = t
+        return t
 
     async def connect(self, retry: bool = False, wait: bool = True):
         """Connect to the event dispatcher broker.
@@ -785,3 +812,5 @@ class AsyncDispatcher(Dispatcher):
             await self._handle_stop_signal()
 
         asyncio.ensure_future(async_wrapper())
+        for task in self._tasks.values():
+            task.cancel()
