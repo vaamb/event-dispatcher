@@ -491,7 +491,7 @@ class Dispatcher:
             self.run(block=True)
 
         if block:
-            return wrap()
+            wrap()
         else:
             self.start_background_task(target=wrap)
 
@@ -795,10 +795,14 @@ class AsyncDispatcher(Dispatcher):
 
     async def start(self, retry: bool = False, block: bool = True) -> None:
         """Start to dispatch and receive events."""
-        await self.connect(retry=retry, wait=True)
-        await self.run()
+        async def wrap():
+            await self.connect(retry=retry, wait=True)
+            await self.run(block=True)
+
         if block:
-            await self.wait()
+            await wrap()
+        else:
+            self.start_background_task(target=wrap)
 
     async def stop(self) -> None:
         """Stop to dispatch events."""
