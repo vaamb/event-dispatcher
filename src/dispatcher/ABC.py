@@ -117,6 +117,8 @@ class Dispatcher:
         self._running.clear()
         self._connected.clear()
         self._reconnecting.clear()
+        for thread in self._threads.values():
+            thread.join()
 
     # Payload-related methods
     @cached_property
@@ -204,7 +206,6 @@ class Dispatcher:
     ) -> None:
         try:
             if event == STOP_SIGNAL:
-                self._handle_stop_signal()
                 raise StopEvent
             else:
                 event_handler = self._get_event_handler(event)
@@ -285,8 +286,6 @@ class Dispatcher:
         while self.running:
             try:
                 self._listen_loop()
-            except StopEvent:
-                break
             except ConnectionError:
                 # Try to reconnect if needed
                 if self.reconnection:
@@ -294,8 +293,10 @@ class Dispatcher:
                     self._reconnection_loop()
                 else:
                     self.logger.warning("Connection lost, stopping")
-                    self._handle_stop_signal()
-                    break
+                    raise StopEvent
+            except StopEvent:
+                self._handle_stop_signal()
+                break
 
     """
     API calls
@@ -497,9 +498,6 @@ class Dispatcher:
     def stop(self) -> None:
         """Stop to dispatch events."""
         self.emit(STOP_SIGNAL, room=str(self.host_uid), namespace=self.namespace)
-        self._handle_stop_signal()
-        for thread in self._threads.values():
-            thread.join()
 
 
 class AsyncDispatcher(Dispatcher):
@@ -552,6 +550,8 @@ class AsyncDispatcher(Dispatcher):
         self._running.clear()
         self._connected.clear()
         self._reconnecting.clear()
+        for task in self._tasks.values():
+            task.cancel()
 
     # Events triggering
     async def _trigger_connect_event(self) -> None:
@@ -569,7 +569,6 @@ class AsyncDispatcher(Dispatcher):
     ) -> None:
         try:
             if event == STOP_SIGNAL:
-                await self._handle_stop_signal()
                 raise StopEvent
             else:
                 event_handler = self._get_event_handler(event)
@@ -659,8 +658,6 @@ class AsyncDispatcher(Dispatcher):
         while self.running:
             try:
                 await self._listen_loop()
-            except StopEvent:
-                break
             except ConnectionError:
                 # Try to reconnect if needed
                 if self.reconnection:
@@ -668,8 +665,10 @@ class AsyncDispatcher(Dispatcher):
                     await self._reconnection_loop()
                 else:
                     self.logger.warning("Connection lost, stopping")
-                    await self._handle_stop_signal()
-                    break
+                    raise StopEvent
+            except StopEvent:
+                await self._handle_stop_signal()
+                break
 
     """
     API
@@ -794,23 +793,14 @@ class AsyncDispatcher(Dispatcher):
         if block:
             await self.wait()
 
-    def start(self, retry: bool = False, block: bool = True) -> None:
+    async def start(self, retry: bool = False, block: bool = True) -> None:
         """Start to dispatch and receive events."""
-        async def async_wrapper():
-            await self.connect(retry=retry, wait=True)
-            await self.run()
-            if block:
-                await self.wait()
+        await self.connect(retry=retry, wait=True)
+        await self.run()
+        if block:
+            await self.wait()
 
-        asyncio.ensure_future(async_wrapper())
-
-    def stop(self) -> None:
+    async def stop(self) -> None:
         """Stop to dispatch events."""
-        async def async_wrapper():
-            await self.emit(
-                STOP_SIGNAL, room=str(self.host_uid), namespace=self.namespace)
-            await self._handle_stop_signal()
-
-        asyncio.ensure_future(async_wrapper())
-        for task in self._tasks.values():
-            task.cancel()
+        await self.emit(
+            STOP_SIGNAL, room=str(self.host_uid), namespace=self.namespace)
