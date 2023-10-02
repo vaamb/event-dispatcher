@@ -231,7 +231,7 @@ class Dispatcher:
         retry_sleep = 1
         self.logger.info("Starting the reconnection loop in 1 sec")
         time.sleep(retry_sleep)
-        while self.reconnecting:
+        while self.running and self.reconnecting:
             self.logger.info(
                     f"Attempting to reconnect to the message broker")
             connected = self._broker_reachable()
@@ -267,6 +267,9 @@ class Dispatcher:
                         try:
                             self._trigger_event(event, sid, *data)
                         except StopEvent:
+                            self.emit(
+                                STOP_SIGNAL, room=room, namespace=self.namespace,
+                                ttl=5)
                             raise
                         except Exception as e:
                             self.logger.error(
@@ -497,7 +500,9 @@ class Dispatcher:
 
     def stop(self) -> None:
         """Stop to dispatch events."""
-        self.emit(STOP_SIGNAL, room=str(self.host_uid), namespace=self.namespace)
+        self.emit(
+            STOP_SIGNAL, room=str(self.host_uid), namespace=self.namespace,
+            ttl=15)
 
 
 class AsyncDispatcher(Dispatcher):
@@ -603,7 +608,7 @@ class AsyncDispatcher(Dispatcher):
         retry_sleep = 1
         self.logger.info("Starting the reconnection loop in 1 sec")
         await asyncio.sleep(retry_sleep)
-        while self.reconnecting:
+        while self.running and self.reconnecting:
             self.logger.info(
                     f"Attempting to reconnect to the message broker")
             connected = await self._broker_reachable()
@@ -639,6 +644,9 @@ class AsyncDispatcher(Dispatcher):
                         try:
                             await self._trigger_event(event, sid, *data)
                         except StopEvent:
+                            await self.emit(
+                                STOP_SIGNAL, room=room, namespace=self.namespace,
+                                ttl=5)
                             raise
                         except Exception as e:
                             self.logger.error(
@@ -807,4 +815,5 @@ class AsyncDispatcher(Dispatcher):
     async def stop(self) -> None:
         """Stop to dispatch events."""
         await self.emit(
-            STOP_SIGNAL, room=str(self.host_uid), namespace=self.namespace)
+            STOP_SIGNAL, room=str(self.host_uid), namespace=self.namespace,
+            ttl=15)
