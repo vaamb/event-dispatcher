@@ -491,7 +491,7 @@ class Dispatcher:
         if block:
             return self._master_loop()
         else:
-            self.start_background_task(target=self._master_loop)
+            self.start_background_task(target=self._master_loop, task_name="dispatcher-main_loop")
 
     def start(self, retry: bool = False, block: bool = True) -> None:
         """Start to dispatch and receive events."""
@@ -502,7 +502,7 @@ class Dispatcher:
         if block:
             wrap()
         else:
-            self.start_background_task(target=wrap)
+            self.start_background_task(target=wrap, task_name="dispatcher-main_loop")
 
     def stop(self) -> None:
         """Stop to dispatch events."""
@@ -808,9 +808,10 @@ class AsyncDispatcher(Dispatcher):
         if self.running:
             raise RuntimeError("Already running")
         self._running.set()
-        self.start_background_task(target=self._master_loop)
         if block:
-            await self.wait()
+            await self._master_loop()
+        else:
+            self.start_background_task(target=self._master_loop, task_name="dispatcher-main_loop")
 
     async def start(self, retry: bool = False, block: bool = True) -> None:
         """Start to dispatch and receive events."""
@@ -821,7 +822,7 @@ class AsyncDispatcher(Dispatcher):
         if block:
             await wrap()
         else:
-            self.start_background_task(target=wrap)
+            self.start_background_task(target=wrap, task_name="dispatcher-main_loop")
 
     async def stop(self) -> None:
         """Stop to dispatch events."""
