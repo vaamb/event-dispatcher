@@ -117,8 +117,11 @@ class Dispatcher:
         self._running.clear()
         self._connected.clear()
         self._reconnecting.clear()
-        for thread in self._threads.values():
-            thread.join()
+        for thread in [*self._threads.values()]:
+            try:
+                thread.join(timeout=0)
+            except RuntimeError:  # Trying to close current thread
+                pass
 
     # Payload-related methods
     @cached_property
@@ -558,8 +561,11 @@ class AsyncDispatcher(Dispatcher):
         self._running.clear()
         self._connected.clear()
         self._reconnecting.clear()
-        for task in self._tasks.values():
-            task.cancel()
+        for task in [*self._tasks.values()]:
+            try:
+                task.cancel()
+            except RuntimeError:
+                pass
 
     # Events triggering
     async def _trigger_connect_event(self) -> None:
