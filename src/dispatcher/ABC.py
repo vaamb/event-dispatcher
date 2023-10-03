@@ -437,13 +437,16 @@ class Dispatcher:
             **kwargs
     ) -> Thread:
         """Override to use another threading method"""
-        task_name = task_name or target.__name__
+        task_name = task_name or f"dispatcher-{target.__name__}"
         task = self._threads.get(task_name)
         if task:
             if task.is_alive():
                 raise ValueError(
                     f"A background task named {task_name} is already running")
-        t = Thread(target=target, args=args)
+        t = Thread(
+            target=target,
+            args=args,
+            name=task_name)
         t.start()
         self._threads[task_name] = t
         return t
@@ -755,13 +758,15 @@ class AsyncDispatcher(Dispatcher):
             **kwargs
     ) -> Task:
         """Override to use another concurrency method"""
-        task_name = task_name or target.__name__
+        task_name = task_name or f"dispatcher-{target.__name__}"
         task = self._tasks.get(task_name)
         if task:
             if not task.done():
                 raise ValueError(
                     f"A background task named {task_name} is already running")
-        t = Task(target(*args))
+        t = Task(
+            target(*args),
+            name=task_name)
         self._tasks[task_name] = t
         return t
 
