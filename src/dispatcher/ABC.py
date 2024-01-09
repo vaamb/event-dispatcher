@@ -242,7 +242,8 @@ class Dispatcher:
                 self.logger.info(f"Reconnection successful")
                 self._handle_broker_connect()
                 self._reconnecting.clear()
-                break
+                # Stop the loop
+                return
             else:
                 self.logger.info(
                     f"Reconnection attempt failed. Retrying in {retry_sleep} s")
@@ -250,6 +251,8 @@ class Dispatcher:
                 retry_sleep *= 2
                 if retry_sleep > 60:
                     retry_sleep = 60
+        # Should not try to reconnect or be running -> Stop
+        raise StopEvent
 
     def _listen_loop(self) -> None:
         self.logger.info("Starting the listening loop")
@@ -449,7 +452,9 @@ class Dispatcher:
         t = Thread(
             target=target,
             args=args,
-            name=task_name)
+            name=task_name,
+            daemon=True,
+        )
         t.start()
         self._threads[task_name] = t
         return t
@@ -491,14 +496,17 @@ class Dispatcher:
         if block:
             return self._master_loop()
         else:
-            self.start_background_task(target=self._master_loop, task_name="dispatcher-main_loop")
+            self.start_background_task(
+                target=self._master_loop, task_name="dispatcher-main_loop")
 
     def start(self, retry: bool = False, block: bool = True) -> None:
         """Start to dispatch and receive events."""
         def wrap():
-            self.connect(retry=retry, wait=True)
-            self.run(block=True)
-
+            try:
+                self.connect(retry=retry, wait=True)
+                self.run(block=True)
+            except StopEvent:
+                self.logger.info("Caught a stop event")
         if block:
             wrap()
         else:
@@ -509,6 +517,7 @@ class Dispatcher:
         self.emit(
             STOP_SIGNAL, room=str(self.host_uid), namespace=self.namespace,
             ttl=15)
+        self._handle_stop_signal()
 
 
 class AsyncDispatcher(Dispatcher):
@@ -625,7 +634,8 @@ class AsyncDispatcher(Dispatcher):
                 self.logger.info(f"Reconnection successful")
                 await self._handle_broker_connect()
                 self._reconnecting.clear()
-                break
+                # Stop the loop
+                return
             else:
                 self.logger.info(
                     f"Reconnection attempt failed. Retrying in {retry_sleep} s")
@@ -633,6 +643,8 @@ class AsyncDispatcher(Dispatcher):
                 retry_sleep *= 2
                 if retry_sleep > 60:
                     retry_sleep = 60
+        # Should not try to reconnect or be running -> Stop
+        raise StopEvent
 
     async def _listen_loop(self) -> None:
         self.logger.info("Starting the listening loop")
@@ -811,13 +823,17 @@ class AsyncDispatcher(Dispatcher):
         if block:
             await self._master_loop()
         else:
-            self.start_background_task(target=self._master_loop, task_name="dispatcher-main_loop")
+            self.start_background_task(
+                target=self._master_loop, task_name="dispatcher-main_loop")
 
     async def start(self, retry: bool = False, block: bool = True) -> None:
         """Start to dispatch and receive events."""
         async def wrap():
-            await self.connect(retry=retry, wait=True)
-            await self.run(block=True)
+            try:
+                await self.connect(retry=retry, wait=True)
+                await self.run(block=True)
+            except StopEvent:
+                self.logger.info("Caught a stop event")
 
         if block:
             await wrap()
@@ -829,3 +845,4 @@ class AsyncDispatcher(Dispatcher):
         await self.emit(
             STOP_SIGNAL, room=str(self.host_uid), namespace=self.namespace,
             ttl=15)
+        await self._handle_stop_signal()
