@@ -94,12 +94,17 @@ class AsyncRedisDispatcher(AsyncDispatcher):
             raise ConnectionError("Failed to publish payload")
 
     async def _listen(self):
-        while True:
+        while self.running:
             try:
                 if self.redis is None:
                     self._connect_to_redis()
                     self._subscribe()
-                async for message in self.pubsub.listen():
+                try:
+                    message = await self.pubsub.handle_message(
+                        await self.pubsub.parse_response(block=False, timeout=1))
+                except TimeoutError:
+                    pass
+                else:
                     if "data" in message:
                         yield message["data"]
             except Exception as e:  # noqa

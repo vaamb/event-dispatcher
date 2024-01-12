@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from queue import Queue
+from queue import Queue, Empty
+import time
 from typing import Iterable, AsyncIterable
 
 
@@ -68,11 +69,8 @@ class StupidPubSub:
         published = self.broker.push(payload)
         return published
 
-    def listen(self) -> Iterable[dict]:
-        while self.subscribed:
-            response = self.messages.get(block=False)
-            if response is not None:
-                yield response
+    def listen(self, timeout: float | None = None) -> dict | bytes:
+        return self.messages.get(block=True, timeout=timeout)
 
     @property
     def subscribed(self) -> bool:
@@ -91,8 +89,8 @@ class AsyncPubSub(StupidPubSub):
         published = await self.broker.push(payload)
         return published
 
-    async def listen(self) -> AsyncIterable[dict]:
-        while self.subscribed:
-            response = await self.messages.get()
-            if response is not None:
-                yield response
+    async def listen(self, timeout: float | None = None) -> dict | bytes:
+        try:
+            return await asyncio.wait_for(self.messages.get(), timeout)
+        except TimeoutError:
+            raise Empty

@@ -131,7 +131,7 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
             raise ConnectionError("Failed to publish payload")
 
     async def _listen(self) -> AsyncIterator[bytes]:
-        while True:
+        while self.running:
             try:
                 if self.listener_connection is None:
                     self.listener_connection = await self._connection()
@@ -140,8 +140,10 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
                     exchange = await self._exchange(self.listener_channel)
                     self.listener_queue = await self._queue(
                         self.listener_channel, exchange)
-                async with self.listener_queue.iterator() as queue_iter:
-                    async for message in queue_iter:
+                while self.running:
+                    message = await self.listener_queue.get(
+                        no_ack=True, fail=False, timeout=1)
+                    if message is not None:
                         message: aio_pika.IncomingMessage
                         async with message.process():
                             yield message.body

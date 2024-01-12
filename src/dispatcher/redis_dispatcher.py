@@ -88,13 +88,17 @@ class RedisDispatcher(Dispatcher):
             raise ConnectionError("Failed to publish payload")
 
     def _listen(self):
-        while True:
+        while self.running:
             try:
                 if self.redis is None:
                     self._connect_to_redis()
                     self._subscribe()
-                    retry_sleep = 1
-                for message in self.pubsub.listen():
+                try:
+                    message = self.pubsub.handle_message(
+                        self.pubsub.parse_response(block=True, timeout=1))
+                except TimeoutError:
+                    pass
+                else:
                     if "data" in message:
                         yield message["data"]
             except Exception as e:  # noqa

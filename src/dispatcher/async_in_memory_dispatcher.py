@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import queue
 import logging
 
 from ._pubsub import AsyncPubSub
@@ -39,14 +40,17 @@ class AsyncInMemoryDispatcher(AsyncDispatcher):
 
     async def _listen(self):
         self.pubsub.subscribe(self.namespace)
-        while True:
+        while self.running:
             try:
-                async for message in self.pubsub.listen():
-                    yield message
+                message = self.pubsub.listen(timeout=1)
+            except queue.Empty:
+                pass
             except Exception as e:
                 self.logger.exception(
                     f"Error while reading from queue. Error msg: {e.args}"
                 )
+            else:
+                yield message
 
     async def initialize(self) -> None:
         pass

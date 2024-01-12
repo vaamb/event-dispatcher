@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import queue
 import logging
 
 from ._pubsub import StupidPubSub
@@ -41,5 +42,14 @@ class InMemoryDispatcher(Dispatcher):
 
     def _listen(self):
         self.pubsub.subscribe(self.namespace)
-        for message in self.pubsub.listen():
-            yield message
+        while self.running:
+            try:
+                message = self.pubsub.listen(timeout=1)
+            except queue.Empty:
+                pass
+            except Exception as e:
+                self.logger.exception(
+                    f"Error while reading from queue. Error msg: {e.args}"
+                )
+            else:
+                yield message

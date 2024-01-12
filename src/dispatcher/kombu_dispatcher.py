@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import queue
 import logging
 from typing import Iterator
 
@@ -118,16 +119,20 @@ class KombuDispatcher(Dispatcher):
 
     def _listen(self) -> Iterator[bytes]:
         listener_queue = self._queue()
-        while True:
+        while self.running:
             try:
                 if self.listener_connection is None:
                     self.listener_connection = self._connection()
                     self.listener_connection.connect()
-                with self.listener_connection.SimpleQueue(listener_queue) as queue:
-                    while True:
-                        message: kombu.Message = queue.get(block=True)
-                        message.ack()
-                        yield message.body
+                with self.listener_connection.SimpleQueue(listener_queue) as q:
+                    while self.running:
+                        try:
+                            message: kombu.Message = q.get(block=True, timeout=1)
+                        except queue.Empty:
+                            pass
+                        else:
+                            message.ack()
+                            yield message.body
             except Exception as e:  # noqa
                 self.logger.error(f"{e.__class__.__name__}: {e}")
                 raise ConnectionError("Connection to broker lost")
