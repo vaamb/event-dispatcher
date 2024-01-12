@@ -37,12 +37,11 @@ class RedisDispatcher(Dispatcher):
                 "Install 'redis' package to use RedisDispatcher"
             )
         super().__init__(namespace=namespace, parent_logger=parent_logger)
-        self.redis_options = redis_options or {}
-        self.redis_url = url
-        self.queue_options = queue_options or {}
-        self.redis = None
-        self.pubsub = None
-        self._connect_to_redis()
+        self.redis_options: dict = redis_options or {}
+        self.redis_url: str = url
+        self.queue_options: dict = queue_options or {}
+        self.redis: redis.Redis | None = None
+        self.pubsub: redis.client.PubSub | None = None
 
     def _broker_reachable(self) -> bool:
         try:

@@ -23,7 +23,7 @@ class AsyncInMemoryDispatcher(AsyncDispatcher):
             namespace: str,
             parent_logger: logging.Logger = None
     ) -> None:
-        self.pubsub = AsyncPubSub()
+        self.pubsub: AsyncPubSub = AsyncPubSub()
         super().__init__(namespace, parent_logger)
 
     def _broker_reachable(self) -> bool:

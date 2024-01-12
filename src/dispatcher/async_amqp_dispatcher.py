@@ -45,15 +45,15 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
                 "Install 'aio_pika' package to use AsyncAMQPDispatcher")
         super().__init__(namespace=namespace, parent_logger=parent_logger)
         self.url = url
-        self.connection_options = connection_options or {}
-        self.exchange_options = exchange_options or {}
-        self.queue_options = queue_options or {}
-        self.publisher_options = publisher_options or {}
-        self.publisher_pool_size = publisher_pool_size or 10
-        self.listener_connection = None
-        self.listener_channel = None
-        self.listener_queue = None
-        self.__publisher_channel_pool = None
+        self.connection_options: dict = connection_options or {}
+        self.exchange_options: dict = exchange_options or {}
+        self.queue_options: dict = queue_options or {}
+        self.publisher_options: dict = publisher_options or {}
+        self.publisher_pool_size: int = publisher_pool_size or 10
+        self.listener_connection: "aio_pika.Connection" | None = None
+        self.listener_channel: "aio_pika.Channel" | None = None
+        self.listener_queue: "aio_pika.Queue" | None = None
+        self.__publisher_channel_pool: "aio_pika.pool.Pool" | None = None
 
     async def _broker_reachable(self) -> bool:
         try:

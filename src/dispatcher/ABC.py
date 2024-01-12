@@ -33,10 +33,10 @@ context = ContextVarWrapper()
 
 
 class Dispatcher:
-    asyncio_based = False
-    _PAYLOAD_SEPARATOR = b"|"
-    _DATA_OBJECT = b"\x31"  # 1
-    _DATA_BINARY = b"\x32"  # 2
+    asyncio_based: bool = False
+    _PAYLOAD_SEPARATOR: bytes = b"|"
+    _DATA_OBJECT: bytes = b"\x31"  # 1
+    _DATA_BINARY: bytes = b"\x32"  # 2
 
     def __init__(
             self,
@@ -53,9 +53,9 @@ class Dispatcher:
         logger = None
         if parent_logger:
             logger = parent_logger.getChild(namespace)
-        self.namespace = namespace.strip("/")
-        self.logger = logger or logging.getLogger(f"dispatcher.{namespace}")
-        self.reconnection = reconnection
+        self.namespace: str = namespace.strip("/")
+        self.logger: logging.Logger = logger or logging.getLogger(f"dispatcher.{namespace}")
+        self.reconnection: bool = reconnection
         self.host_uid: str = str(uuid.uuid4())
         self.rooms: set[str] = set()
         self.rooms.add(self.host_uid)
@@ -64,8 +64,8 @@ class Dispatcher:
         self._reconnecting = Event()
         self.event_handlers: set[EventHandler] = set()
         self.handlers: dict[str: Callable] = {}
-        self._fallback = None
-        self._sessions = {}
+        self._fallback: Callable | None = None
+        self._sessions: dict = {}
         self._threads: dict[str, Thread] | None = {}
 
     def __repr__(self):
@@ -332,7 +332,7 @@ class Dispatcher:
         return self._fallback
 
     @fallback.setter
-    def fallback(self, fct: Callable = None) -> None:
+    def fallback(self, fct: Callable | None = None) -> None:
         """Set the fallback function that will be called if no event handler
         is found.
         """

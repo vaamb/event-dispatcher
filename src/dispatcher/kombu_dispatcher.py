@@ -44,14 +44,14 @@ class KombuDispatcher(Dispatcher):
             raise RuntimeError(
                 "Install 'kombu' package to use KombuDispatcher")
         super(KombuDispatcher, self).__init__(namespace, parent_logger)
-        self.url = url
-        self.exchange_options = exchange_options or {}
-        self.queue_options = queue_options or {}
-        self.producer_options = producer_options or {}
-        self.publisher_options = publisher_options or {}
-        self.publisher_pool_size = publisher_pool_size or 10
-        self.listener_connection = None
-        self.__publisher_channel_pool = None
+        self.url: str = url
+        self.exchange_options: dict = exchange_options or {}
+        self.queue_options: dict = queue_options or {}
+        self.producer_options: dict = producer_options or {}
+        self.publisher_options: dict = publisher_options or {}
+        self.publisher_pool_size: int = publisher_pool_size or 10
+        self.listener_connection: "kombu.Connection" | None = None
+        self.__publisher_channel_pool: "kombu.connection.ChannelPool" | None = None
 
     def _broker_reachable(self) -> bool:
         try:

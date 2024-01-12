@@ -44,12 +44,11 @@ class AsyncRedisDispatcher(AsyncDispatcher):
         if not hasattr(aioredis.Redis, "from_url"):
             raise RuntimeError("Version 2 of aioredis package is required.")
         super().__init__(namespace=namespace, parent_logger=parent_logger)
-        self.redis_options = redis_options or {}
-        self.redis_url = url
-        self.queue_options = queue_options or {}
-        self.redis = None
-        self.pubsub = None
-        self._connect_to_redis()
+        self.redis_options: dict = redis_options or {}
+        self.redis_url: str = url
+        self.queue_options: dict = queue_options or {}
+        self.redis: aioredis.Redis | None = None
+        self.pubsub: aioredis.client.PubSub | None = None
 
     def _broker_reachable(self) -> bool:
         try:
