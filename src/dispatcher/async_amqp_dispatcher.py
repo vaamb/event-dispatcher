@@ -142,7 +142,7 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
                         self.listener_channel, exchange)
                 while self.running:
                     message = await self.listener_queue.get(
-                        no_ack=True, fail=False, timeout=1)
+                        fail=False, timeout=1)
                     if message is not None:
                         message: aio_pika.IncomingMessage
                         async with message.process():
