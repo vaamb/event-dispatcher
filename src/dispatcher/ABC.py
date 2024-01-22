@@ -38,6 +38,8 @@ class Dispatcher:
     _DATA_OBJECT: bytes = b"\x31"  # 1
     _DATA_BINARY: bytes = b"\x32"  # 2
 
+    serializer = Serializer
+
     def __init__(
             self,
             namespace: str,
@@ -136,7 +138,7 @@ class Dispatcher:
         if type(data) == type(bytes):
             return self._DATA_BINARY_SEPARATOR + data
         else:
-            return self._DATA_OBJECT_SEPARATOR + Serializer.dumps(data)
+            return self._DATA_OBJECT_SEPARATOR + self.serializer.dumps(data)
 
     def _generate_payload(
             self,
@@ -145,7 +147,7 @@ class Dispatcher:
             data: DataType = None,
     ) -> bytes:
         return (
-            Serializer.dumps({
+            self.serializer.dumps({
                 "host_uid": self.host_uid,
                 "event": event,
                 "room": room
@@ -153,19 +155,18 @@ class Dispatcher:
             self._encode_data(data)
         )
 
-    @classmethod
-    def _decode_data(cls, data: bytes) -> DataType:
+    def _decode_data(self, data: bytes) -> DataType:
         data_type = data[:1]
-        if data_type == cls._DATA_OBJECT:
-            return Serializer.loads(data[1:])
-        elif data_type == cls._DATA_BINARY:
+        if data_type == self._DATA_OBJECT:
+            return self.serializer.loads(data[1:])
+        elif data_type == self._DATA_BINARY:
             return data[1:]
         else:
             raise ValueError("Unknown type of data")
 
     def _parse_payload(self, payload: bytes) -> PayloadDict:
         base_info, base_data = payload.split(self._PAYLOAD_SEPARATOR, maxsplit=2)
-        info = Serializer.loads(base_info)
+        info = self.serializer.loads(base_info)
         return PayloadDict(
             host_uid=info["host_uid"],
             event=info["event"],
