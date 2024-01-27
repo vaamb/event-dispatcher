@@ -140,10 +140,8 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
                     exchange = await self._exchange(self.listener_channel)
                     self.listener_queue = await self._queue(
                         self.listener_channel, exchange)
-                while self.running:
-                    message = await self.listener_queue.get(
-                        fail=False, timeout=1)
-                    if message is not None:
+                async with self.listener_queue.iterator() as queue_iter:
+                    async for message in queue_iter:
                         message: aio_pika.IncomingMessage
                         async with message.process():
                             yield message.body
