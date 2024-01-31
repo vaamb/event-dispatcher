@@ -27,7 +27,7 @@ class AsyncInMemoryDispatcher(AsyncDispatcher):
         self.pubsub: AsyncPubSub = AsyncPubSub()
         super().__init__(namespace, parent_logger)
 
-    def _broker_reachable(self) -> bool:
+    async def _broker_reachable(self) -> bool:
         return True
 
     async def _publish(
@@ -42,7 +42,7 @@ class AsyncInMemoryDispatcher(AsyncDispatcher):
         self.pubsub.subscribe(self.namespace)
         while self.running:
             try:
-                message = self.pubsub.listen(timeout=1)
+                message = await self.pubsub.listen(timeout=1)
             except queue.Empty:
                 pass
             except Exception as e:
