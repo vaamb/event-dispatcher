@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import typing as t
-from typing import Any
+from uuid import UUID
 
 from .exceptions import UnknownEvent
 
@@ -48,11 +48,15 @@ class EventHandler:
         namespace = namespace or self.namespace
         self._dispatcher.leave_room(sid, room, namespace)
 
-    def session(self, sid: str, namespace: str | None = None):
+    def session(self, sid: str | UUID, namespace: str | None = None):
+        if isinstance(sid, str):
+            sid = UUID(sid)
         namespace = namespace or self.namespace
         return self._dispatcher.session(sid, namespace)
 
-    def disconnect(self, sid: str, namespace: str | None = None) -> None:
+    def disconnect(self, sid: str | UUID, namespace: str | None = None) -> None:
+        if isinstance(sid, str):
+            sid = UUID(sid)
         namespace = namespace or self.namespace
         self._dispatcher.disconnect(sid, namespace)
 
@@ -118,7 +122,9 @@ class AsyncEventHandler(EventHandler):
         namespace = namespace or self.namespace
         return self._dispatcher.session(sid, namespace)
 
-    async def disconnect(self, sid: str, namespace: str | None = None) -> None:
+    async def disconnect(self, sid: str | UUID, namespace: str | None = None) -> None:
+        if isinstance(sid, str):
+            sid = UUID(sid)
         namespace = namespace or self.namespace
         await self._dispatcher.disconnect(sid, namespace)
 

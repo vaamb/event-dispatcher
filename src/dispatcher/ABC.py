@@ -10,6 +10,7 @@ from threading import Event, Thread
 import time
 from typing import AsyncIterator, Iterator, TypedDict
 import uuid
+from uuid import UUID
 
 from .context_var_wrapper import ContextVarWrapper
 from .event_handler import AsyncEventHandler, EventHandler
@@ -21,7 +22,7 @@ DataType: bytes | dict | list | str | tuple | None
 
 
 class PayloadDict(TypedDict):
-    host_uid: str
+    host_uid: UUID
     event: str
     room: str | None
     data: dict | list | str | tuple | None
@@ -58,9 +59,9 @@ class Dispatcher:
         self.namespace: str = namespace.strip("/")
         self.logger: logging.Logger = logger or logging.getLogger(f"dispatcher.{namespace}")
         self.reconnection: bool = reconnection
-        self.host_uid: str = str(uuid.uuid4())
+        self.host_uid: UUID = uuid.uuid4()
         self.rooms: set[str] = set()
-        self.rooms.add(self.host_uid)
+        self.rooms.add(self.host_uid.hex)
         self._running = Event()
         self._connected = Event()
         self._reconnecting = Event()
@@ -148,7 +149,7 @@ class Dispatcher:
     ) -> bytes:
         return (
             self.serializer.dumps({
-                "host_uid": self.host_uid,
+                "host_uid": self.host_uid.hex,
                 "event": event,
                 "room": room
             }) +
@@ -168,9 +169,9 @@ class Dispatcher:
         base_info, base_data = payload.split(self._PAYLOAD_SEPARATOR, maxsplit=2)
         info = self.serializer.loads(base_info)
         return PayloadDict(
-            host_uid=info["host_uid"],
+            host_uid=UUID(info["host_uid"]),
             event=info["event"],
-            room=(info["room"] if info["room"] is not None else self.host_uid),
+            room=(info["room"] if info["room"] is not None else self.host_uid.hex),
             data=self._decode_data(base_data)
         )
 
@@ -205,7 +206,7 @@ class Dispatcher:
     def _trigger_event(
             self,
             event: str,
-            sid: str,
+            sid: UUID,
             *args,
     ) -> None:
         try:
@@ -266,7 +267,7 @@ class Dispatcher:
                     self.logger.debug(f"Received event '{event}'")
                     room: str = message["room"]
                     if room in self.rooms:
-                        sid: str = message["host_uid"]
+                        sid: uuid = message["host_uid"]
                         context.sid = sid
                         data: DataType = message["data"]
                         data: list = self._data_as_list(data)
@@ -339,20 +340,30 @@ class Dispatcher:
         """
         self._fallback = fct
 
-    def enter_room(self, sid: str, room: str, namespace: str | None = None) -> None:
+    def enter_room(
+            self,
+            sid: str | UUID,
+            room: str,
+            namespace: str | None = None
+    ) -> None:
         self.rooms.add(room)
 
-    def leave_room(self, sid: str, room: str, namespace: str | None = None) -> None:
+    def leave_room(
+            self,
+            sid: str | UUID,
+            room: str,
+            namespace: str | None = None
+    ) -> None:
         if room in self.rooms:
             self.rooms.remove(room)
 
-    def session(self, sid: str, namespace: str | None = None):
+    def session(self, sid: UUID | str, namespace: str | None = None):
         class _session_ctx_manager:
             def __init__(self, dispatcher, _sid, _namespace):
-                self.dispatcher = dispatcher
-                self.sid = sid
-                self.namespace = namespace.strip("/")
-                self.session = None
+                self.dispatcher: Dispatcher = dispatcher
+                self.sid: UUID = sid
+                self.namespace: str = namespace.strip("/")
+                self.session: dict | None = None
 
             def __enter__(self):
                 self.session = self.dispatcher._sessions.get(sid, {})
@@ -361,9 +372,12 @@ class Dispatcher:
             def __exit__(self, *args):
                 self.dispatcher._sessions[sid] = self.session
 
+        if isinstance(sid, str):
+            sid = UUID(sid)
+
         return _session_ctx_manager(self, sid, namespace)
 
-    def disconnect(self, sid: str, namespace: str | None = None) -> None:
+    def disconnect(self, sid: UUID, namespace: str | None = None) -> None:
         pass  # TODO
 
     def register_event_handler(self, event_handler: EventHandler) -> None:
@@ -588,7 +602,7 @@ class AsyncDispatcher(Dispatcher):
     async def _trigger_event(
             self,
             event: str,
-            sid: str,
+            sid: UUID,
             *args,
     ) -> None:
         try:
@@ -658,7 +672,7 @@ class AsyncDispatcher(Dispatcher):
                     self.logger.debug(f"Received event '{event}'")
                     room: str = message["room"]
                     if room in self.rooms:
-                        sid: str = message["host_uid"]
+                        sid: UUID = message["host_uid"]
                         context.sid = sid
                         data: DataType = message["data"]
                         data: list = self._data_as_list(data)
@@ -708,13 +722,13 @@ class AsyncDispatcher(Dispatcher):
         """
         pass
 
-    def session(self, sid: str, namespace: str | None = None):
+    def session(self, sid: UUID | str, namespace: str | None = None):
         class _session_ctx_manager:
             def __init__(self, dispatcher, _sid, _namespace):
-                self.dispatcher = dispatcher
-                self.sid = sid
-                self.namespace = namespace.strip("/")
-                self.session = None
+                self.dispatcher: Dispatcher = dispatcher
+                self.sid: UUID = sid
+                self.namespace: str = namespace.strip("/")
+                self.session: dict | None = None
 
             async def __aenter__(self):
                 self.session = self.dispatcher._sessions.get(sid, {})
@@ -723,9 +737,12 @@ class AsyncDispatcher(Dispatcher):
             async def __aexit__(self, *args):
                 self.dispatcher._sessions[sid] = self.session
 
+        if isinstance(sid, str):
+            sid = UUID(sid)
+
         return _session_ctx_manager(self, sid, namespace)
 
-    async def disconnect(self, sid: str, namespace: str | None = None) -> None:
+    async def disconnect(self, sid: UUID, namespace: str | None = None) -> None:
         pass  # TODO
 
     def register_event_handler(self, event_handler: AsyncEventHandler) -> None:
