@@ -144,9 +144,11 @@ class Dispatcher:
     def _generate_payload(
             self,
             event: str,
-            room: str | None = None,
+            room: str | UUID | None = None,
             data: DataType = None,
     ) -> bytes:
+        if isinstance(room, UUID):
+            room = room.hex
         return (
             self.serializer.dumps({
                 "host_uid": self.host_uid.hex,
@@ -411,7 +413,7 @@ class Dispatcher:
             self,
             event: str,
             data: DataType = None,
-            to: str | None = None,
+            to:  UUID | None = None,
             room: str | None = None,
             namespace: str | None = None,
             ttl: int | None = None,
@@ -746,7 +748,7 @@ class AsyncDispatcher(Dispatcher):
             self,
             event: str,
             data: DataType = None,
-            to: str | None = None,
+            to:  UUID | None = None,
             room: str | None = None,
             namespace: str | None = None,
             ttl: int | None = None,
