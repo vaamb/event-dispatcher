@@ -340,29 +340,18 @@ class Dispatcher:
         """
         self._fallback = fct
 
-    def enter_room(
-            self,
-            sid: str | UUID,
-            room: str,
-            namespace: str | None = None
-    ) -> None:
+    def enter_room(self, room: str) -> None:
         self.rooms.add(room)
 
-    def leave_room(
-            self,
-            sid: str | UUID,
-            room: str,
-            namespace: str | None = None
-    ) -> None:
+    def leave_room(self, room: str) -> None:
         if room in self.rooms:
             self.rooms.remove(room)
 
-    def session(self, sid: UUID | str, namespace: str | None = None):
+    def session(self, sid: UUID | str):
         class _session_ctx_manager:
-            def __init__(self, dispatcher, _sid, _namespace):
+            def __init__(self, dispatcher, sid_):
                 self.dispatcher: Dispatcher = dispatcher
-                self.sid: UUID = sid
-                self.namespace: str = namespace.strip("/")
+                self.sid: UUID = sid_
                 self.session: dict | None = None
 
             def __enter__(self):
@@ -375,7 +364,7 @@ class Dispatcher:
         if isinstance(sid, str):
             sid = UUID(sid)
 
-        return _session_ctx_manager(self, sid, namespace)
+        return _session_ctx_manager(self, sid)
 
     def disconnect(self, sid: UUID, namespace: str | None = None) -> None:
         pass  # TODO
@@ -722,12 +711,11 @@ class AsyncDispatcher(Dispatcher):
         """
         pass
 
-    def session(self, sid: UUID | str, namespace: str | None = None):
+    def session(self, sid: UUID | str):
         class _session_ctx_manager:
-            def __init__(self, dispatcher, _sid, _namespace):
+            def __init__(self, dispatcher, sid_):
                 self.dispatcher: Dispatcher = dispatcher
-                self.sid: UUID = sid
-                self.namespace: str = namespace.strip("/")
+                self.sid: UUID = sid_
                 self.session: dict | None = None
 
             async def __aenter__(self):
@@ -740,7 +728,7 @@ class AsyncDispatcher(Dispatcher):
         if isinstance(sid, str):
             sid = UUID(sid)
 
-        return _session_ctx_manager(self, sid, namespace)
+        return _session_ctx_manager(self, sid)
 
     async def disconnect(self, sid: UUID, namespace: str | None = None) -> None:
         pass  # TODO

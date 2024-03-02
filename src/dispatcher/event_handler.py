@@ -40,25 +40,21 @@ class EventHandler:
             )
         self._dispatcher: Dispatcher = dispatcher
 
-    def enter_room(self, sid: str, room: str, namespace: str | None = None) -> None:
-        namespace = namespace or self.namespace
-        self._dispatcher.enter_room(sid, room, namespace)
+    def enter_room(self, room: str) -> None:
+        self._dispatcher.enter_room(room)
 
-    def leave_room(self, sid: str, room: str, namespace: str | None = None) -> None:
-        namespace = namespace or self.namespace
-        self._dispatcher.leave_room(sid, room, namespace)
+    def leave_room(self, room: str) -> None:
+        self._dispatcher.leave_room(room)
 
-    def session(self, sid: str | UUID, namespace: str | None = None):
+    def session(self, sid: str | UUID):
         if isinstance(sid, str):
             sid = UUID(sid)
-        namespace = namespace or self.namespace
-        return self._dispatcher.session(sid, namespace)
+        return self._dispatcher.session(sid)
 
-    def disconnect(self, sid: str | UUID, namespace: str | None = None) -> None:
+    def disconnect(self, sid: str | UUID) -> None:
         if isinstance(sid, str):
             sid = UUID(sid)
-        namespace = namespace or self.namespace
-        self._dispatcher.disconnect(sid, namespace)
+        self._dispatcher.disconnect(sid)
 
     def get_handler(self, event: str):
         handler = f"on_{event}"
@@ -114,19 +110,14 @@ class AsyncEventHandler(EventHandler):
     def _set_dispatcher(self, dispatcher: AsyncDispatcher) -> None:
         if not dispatcher.asyncio_based:
             raise RuntimeError(
-                "dispatcher must be an instance of Dispatcher class"
+                "dispatcher must be an instance of AsyncDispatcher class"
             )
         self._dispatcher: AsyncDispatcher = dispatcher
 
-    def session(self, sid: str, namespace: str | None = None):
-        namespace = namespace or self.namespace
-        return self._dispatcher.session(sid, namespace)
-
-    async def disconnect(self, sid: str | UUID, namespace: str | None = None) -> None:
+    async def disconnect(self, sid: str | UUID) -> None:
         if isinstance(sid, str):
             sid = UUID(sid)
-        namespace = namespace or self.namespace
-        await self._dispatcher.disconnect(sid, namespace)
+        await self._dispatcher.disconnect(sid)
 
     async def trigger_event(self, event: str, *args, **kwargs):
         """Dispatch an event to the correct handler method.
