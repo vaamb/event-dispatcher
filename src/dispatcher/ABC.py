@@ -34,7 +34,7 @@ context = ContextVarWrapper()
 
 class Dispatcher:
     asyncio_based: bool = False
-    _PAYLOAD_SEPARATOR: bytes = b"|"
+    _PAYLOAD_SEPARATOR: bytes = b"\x1d\x1d"
     _DATA_OBJECT: bytes = b"\x31"  # 1
     _DATA_BINARY: bytes = b"\x32"  # 2
 
