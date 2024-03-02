@@ -105,7 +105,7 @@ class KombuDispatcher(Dispatcher):
             payload: bytes,
             ttl: int | None = None
     ) -> None:
-#        try:
+        try:
             channel = self._publisher_channel_pool.acquire()
             with kombu.Producer(channel, exchange=self._exchange()) as producer:
                 producer.publish(
@@ -113,9 +113,9 @@ class KombuDispatcher(Dispatcher):
                     content_type='application/binary', content_encoding='binary',
                     **self.publisher_options)
             channel.release()
-#        except Exception as e:
-#            self.logger.error(f"{e.__class__.__name__}: {e}")
-#            raise ConnectionError("Failed to publish payload")
+        except Exception as e:
+            self.logger.error(f"{e.__class__.__name__}: {e}")
+            raise ConnectionError("Failed to publish payload")
 
     def _listen(self) -> Iterator[bytes]:
         listener_queue = self._queue()
