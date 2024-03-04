@@ -54,7 +54,10 @@ class AsyncRedisDispatcher(AsyncDispatcher):
         try:
             aioredis.Redis.from_url(self.redis_url, **self.redis_options)
         except RedisError as e:
-            self.logger.warning(str(e))
+            self.logger.debug(
+                f"Encountered an exception while trying to reach the broker. "
+                f"ERROR msg: `{e.__class__.__name__} :{e}`."
+            )
             return False
         else:
             return True

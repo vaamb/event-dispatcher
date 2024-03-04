@@ -59,7 +59,10 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
         try:
             await aio_pika.connect(self.url)
         except Exception as e:
-            self.logger.warning(str(e))
+            self.logger.debug(
+                f"Encountered an exception while trying to reach the broker. "
+                f"ERROR msg: `{e.__class__.__name__} :{e}`."
+            )
             return False
         else:
             return True
