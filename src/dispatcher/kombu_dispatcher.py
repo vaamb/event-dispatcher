@@ -108,17 +108,24 @@ class KombuDispatcher(Dispatcher):
             payload: bytes,
             ttl: int | None = None
     ) -> None:
+        channel = self._publisher_channel_pool.acquire()
         try:
-            channel = self._publisher_channel_pool.acquire()
             with kombu.Producer(channel, exchange=self._exchange()) as producer:
+                options = {**self.publisher_options}
+                if not options.get("timeout"):
+                    options["timeout"] = 10.0
                 producer.publish(
                     payload, routing_key=namespace, expiration=ttl,
                     content_type='application/binary', content_encoding='binary',
-                    **self.publisher_options)
-            channel.release()
+                    **options)
         except Exception as e:
-            self.logger.error(f"{e.__class__.__name__}: {e}")
+            self.logger.error(
+                f"Encountered an exception while trying to publish message. "
+                f"ERROR msg: `{e.__class__.__name__}: {e}`."
+            )
             raise ConnectionError("Failed to publish payload")
+        finally:
+            channel.release()
 
     def _listen(self) -> Iterator[bytes]:
         listener_queue = self._queue()
