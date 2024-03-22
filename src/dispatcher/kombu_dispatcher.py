@@ -161,3 +161,8 @@ class KombuDispatcher(Dispatcher):
                     f"messages. ERROR msg: `{e.__class__.__name__}: {e}`."
                 )
                 raise ConnectionError("Connection to broker lost")
+
+    def _handle_stop_signal(self, *args, **kwargs) -> None:
+        super()._handle_stop_signal(args, kwargs)
+        self.publisher_connection.close()
+        self.listener_connection.close()
