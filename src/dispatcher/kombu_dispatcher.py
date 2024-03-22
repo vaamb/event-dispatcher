@@ -54,7 +54,7 @@ class KombuDispatcher(Dispatcher):
 
     def _broker_reachable(self) -> bool:
         try:
-            self._connection().connect()
+            self.listener_connection.connect()
         except Exception as e:
             self.logger.debug(
                 f"Encountered an exception while trying to reach the broker. "
