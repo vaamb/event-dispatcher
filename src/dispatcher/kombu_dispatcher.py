@@ -145,5 +145,8 @@ class KombuDispatcher(Dispatcher):
                             message.ack()
                             yield message.body
             except Exception as e:  # noqa
-                self.logger.error(f"{e.__class__.__name__}: {e}")
+                self.logger.error(
+                    f"Encountered an exception while trying to listen to "
+                    f"messages. ERROR msg: `{e.__class__.__name__}: {e}`."
+                )
                 raise ConnectionError("Connection to broker lost")
