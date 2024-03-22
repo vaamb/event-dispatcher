@@ -39,7 +39,6 @@ class KombuDispatcher(Dispatcher):
             queue_options: dict = None,
             producer_options: dict = None,
             publisher_options: dict = None,
-            publisher_pool_size: int = 10,
     ) -> None:
         if kombu is None:
             raise RuntimeError(
@@ -81,7 +80,18 @@ class KombuDispatcher(Dispatcher):
         return self._listener_connection
 
     def _channel(self, connection: "kombu.Connection") -> "kombu.connection.Channel":
-        return connection.channel()
+        retry = 1
+        while True:
+            try:
+                return connection.channel()
+            except Exception as e:
+                if retry == 0:
+                    self.logger.error(
+                        f"Could not create a channel. "
+                        f"ERROR msg: `{e.__class__.__name__}: {e}`."
+                    )
+                    raise e
+                retry -= 1
 
     def _exchange(self) -> "kombu.Exchange":
         options = {"durable": False}
@@ -132,6 +142,7 @@ class KombuDispatcher(Dispatcher):
             channel.close()
 
     def _listen(self) -> Iterator[bytes]:
+        self.listener_connection.connect()  # Make sure the connection is connected
         listener_queue = self._queue()
         while self.running:
             try:
