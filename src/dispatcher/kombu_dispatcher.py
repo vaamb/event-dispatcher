@@ -50,9 +50,8 @@ class KombuDispatcher(Dispatcher):
         self.queue_options: dict = queue_options or {}
         self.producer_options: dict = producer_options or {}
         self.publisher_options: dict = publisher_options or {}
-        self.publisher_pool_size: int = publisher_pool_size or 10
-        self.listener_connection: "kombu.Connection" | None = None
-        self.__publisher_channel_pool: "kombu.connection.ChannelPool" | None = None
+        self._publisher_connection: "kombu.Connection" | None = None
+        self._listener_connection: "kombu.Connection" | None = None
 
     def _broker_reachable(self) -> bool:
         try:
@@ -69,15 +68,20 @@ class KombuDispatcher(Dispatcher):
     def _connection(self) -> "kombu.Connection":
         return kombu.Connection(self.url)
 
-    def _channel(self, connection: "kombu.Connection"):
-        return connection.channel()
+    @property
+    def publisher_connection(self) -> "kombu.Connection":
+        if self._publisher_connection is None:
+            self._publisher_connection = self._connection()
+        return self._publisher_connection
 
     @property
-    def _publisher_channel_pool(self) -> "kombu.connection.ChannelPool":
-        if not self.__publisher_channel_pool:
-            self.__publisher_channel_pool = self._connection().ChannelPool(
-                limit=self.publisher_pool_size)
-        return self.__publisher_channel_pool
+    def listener_connection(self) -> "kombu.Connection":
+        if self._listener_connection is None:
+            self._listener_connection = self._connection()
+        return self._listener_connection
+
+    def _channel(self, connection: "kombu.Connection") -> "kombu.connection.Channel":
+        return connection.channel()
 
     def _exchange(self) -> "kombu.Exchange":
         options = {"durable": False}
@@ -108,7 +112,7 @@ class KombuDispatcher(Dispatcher):
             payload: bytes,
             ttl: int | None = None
     ) -> None:
-        channel = self._publisher_channel_pool.acquire()
+        channel = self._channel(self.publisher_connection)
         try:
             with kombu.Producer(channel, exchange=self._exchange()) as producer:
                 options = {**self.publisher_options}
@@ -125,15 +129,12 @@ class KombuDispatcher(Dispatcher):
             )
             raise ConnectionError("Failed to publish payload")
         finally:
-            channel.release()
+            channel.close()
 
     def _listen(self) -> Iterator[bytes]:
         listener_queue = self._queue()
         while self.running:
             try:
-                if self.listener_connection is None:
-                    self.listener_connection = self._connection()
-                    self.listener_connection.connect()
                 with self.listener_connection.SimpleQueue(listener_queue) as q:
                     while self.running:
                         try:
