@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from asyncio import Event, get_event_loop, Queue
 import logging
 from typing import AsyncIterator
 
@@ -49,15 +50,15 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
         self.exchange_options: dict = exchange_options or {}
         self.queue_options: dict = queue_options or {}
         self.publisher_options: dict = publisher_options or {}
-        self.publisher_pool_size: int = publisher_pool_size or 10
-        self.listener_connection: "aio_pika.Connection" | None = None
-        self.listener_channel: "aio_pika.Channel" | None = None
-        self.listener_queue: "aio_pika.Queue" | None = None
-        self.__publisher_channel_pool: "aio_pika.pool.Pool" | None = None
+        self._publisher_connection: "aio_pika.Connection" | None = None
+        self._listener_connection: "aio_pika.Connection" | None = None
+        self._listener_message_queue: Queue = Queue()
+        self._listener_message_queue_reset: Event = Event()
 
     async def _broker_reachable(self) -> bool:
         try:
-            await aio_pika.connect(self.url)
+            if self.listener_connection.transport is None:
+                await self.listener_connection.connect()
         except Exception as e:
             self.logger.debug(
                 f"Encountered an exception while trying to reach the broker. "
@@ -67,26 +68,39 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
         else:
             return True
 
-    async def _connection(self) -> "aio_pika.Connection":
-        return await aio_pika.connect(url=self.url, **self.connection_options)  # noqa
+    def _connection(self) -> "aio_pika.Connection":
+        return aio_pika.Connection(url=self.url, **self.connection_options)  # noqa
+
+    @property
+    def publisher_connection(self) -> "aio_pika.Connection":
+        if self._publisher_connection is None:
+            self._publisher_connection = self._connection()
+            async def reset(*args, **kwargs) -> None:
+                self._publisher_connection.transport = None
+
+            self._publisher_connection.close_callbacks.add(reset)
+        return self._publisher_connection
+
+    @property
+    def listener_connection(self) -> "aio_pika.Connection":
+        if self._listener_connection is None:
+            self._listener_connection = self._connection()
+
+            async def reset(*args, **kwargs) -> None:
+                if self._listener_connection.transport is not None:
+                    await self._listener_message_queue.put(None)
+                self._listener_connection.transport = None
+
+            self._listener_connection.close_callbacks.add(reset)
+        return self._listener_connection
 
     async def _channel(
             self,
             connection: "aio_pika.Connection"
     ) -> "aio_pika.Channel":
+        if connection.transport is None:
+            await connection.connect()
         return await connection.channel()  # noqa
-
-    @property
-    def _publisher_channel_pool(self) -> "aio_pika.pool.Pool":
-        if not self.__publisher_channel_pool:
-            async def channel_constructor():
-                connection = await self._connection()
-                channel = await connection.channel()
-                return channel
-
-            self.__publisher_channel_pool = aio_pika.pool.Pool(
-                channel_constructor, max_size=self.publisher_pool_size)
-        return self.__publisher_channel_pool
 
     async def _exchange(
             self,
@@ -94,13 +108,18 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
     ) -> "aio_pika.Exchange":
         options = {**self.exchange_options}
         name = options.pop("name", "dispatcher")
-        return await channel.declare_exchange(name, **options)
+        exchange = await channel.declare_exchange(name, **options)
+        return exchange
 
-    async def _queue(self, channel, exchange) -> "aio_pika.Queue":
+    async def _queue(
+            self,
+            channel: "aio_pika.Channel",
+            exchange: "aio_pika.Exchange",
+    ) -> "aio_pika.Queue":
         options = {**self.queue_options}
         name = options.pop("name", self.namespace)
         extra_routing_keys = options.pop("extra_routing_keys", [])
-        queue = await channel.declare_queue(name, **options)
+        queue = await channel.declare_queue(name)
         await queue.bind(exchange, routing_key=self.namespace)
         if isinstance(extra_routing_keys, str):
             extra_routing_keys = [extra_routing_keys]
@@ -117,7 +136,9 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
             ttl: int | None = None
     ) -> None:
         try:
-            async with self._publisher_channel_pool.acquire() as channel:
+            if self.publisher_connection.transport is None:
+                await self.publisher_connection.connect()
+            async with self.publisher_connection.channel(on_return_raises=True) as channel:
                 exchange = await self._exchange(channel)
                 await exchange.publish(
                     aio_pika.Message(
@@ -126,28 +147,44 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
                         expiration=ttl,
                         content_type='application/binary', content_encoding='binary'
                     ),
+                    mandatory=True,
                     routing_key=namespace,
                     **self.publisher_options
                 )
         except Exception as e:
-            self.logger.error(f"{e.__class__.__name__}: {e}")
+            self.logger.error(
+                f"Encountered an exception while trying to publish message. "
+                f"ERROR msg: `{e.__class__.__name__}: {e}`."
+            )
             raise ConnectionError("Failed to publish payload")
 
     async def _listen(self) -> AsyncIterator[bytes]:
+        if self.listener_connection.transport is None:
+            await self.listener_connection.connect()
+
+        channel = await self._channel(self.listener_connection)
+        exchange = await self._exchange(channel)
+        listener_queue = await self._queue(channel, exchange)
+
+        async def on_message(message: "aio_pika.IncomingMessage") -> None:
+            await self._listener_message_queue.put(message)
+
+        async def consume() -> None:
+            await listener_queue.consume(on_message)
+
         while self.running:
             try:
-                if self.listener_connection is None:
-                    self.listener_connection = await self._connection()
-                    self.listener_channel = await self._channel(
-                        self.listener_connection)
-                    exchange = await self._exchange(self.listener_channel)
-                    self.listener_queue = await self._queue(
-                        self.listener_channel, exchange)
-                async with self.listener_queue.iterator() as queue_iter:
-                    async for message in queue_iter:
-                        message: aio_pika.IncomingMessage
-                        async with message.process():
-                            yield message.body
+                await consume()
+                message = await self._listener_message_queue.get()
+                if message is None:
+                    raise ConnectionError(
+                        "Connection lost."
+                    )
+                async with message.process():
+                    yield message.body
             except Exception as e:  # noqa
-                self.logger.error(f"{e.__class__.__name__}: {e}")
+                self.logger.error(
+                    f"Encountered an exception while trying to listen to "
+                    f"messages. ERROR msg: `{e.__class__.__name__}: {e}`."
+                )
                 raise ConnectionError("Connection to broker lost")
