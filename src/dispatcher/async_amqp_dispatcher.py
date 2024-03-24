@@ -73,6 +73,7 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
     def publisher_connection(self) -> "aio_pika.Connection":
         if self._publisher_connection is None:
             self._publisher_connection = self._connection()
+
             async def reset(*args, **kwargs) -> None:
                 self._publisher_connection.transport = None
 
@@ -128,7 +129,7 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
         try:
             if self.publisher_connection.transport is None:
                 await self.publisher_connection.connect()
-            async with self.publisher_connection.channel(on_return_raises=True) as channel:
+            async with self.publisher_connection.channel() as channel:
                 exchange = await self._exchange(channel)
                 await exchange.publish(
                     aio_pika.Message(
@@ -137,7 +138,6 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
                         expiration=ttl,
                         content_type='application/binary', content_encoding='binary'
                     ),
-                    mandatory=True,
                     routing_key=namespace,
                     **self.publisher_options
                 )
