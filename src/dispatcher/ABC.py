@@ -90,8 +90,13 @@ class Dispatcher:
             "This method needs to be implemented in a subclass"
         )
 
-    def _publish(self, namespace: str, payload: bytes,
-                 ttl: int | None = None) -> None:
+    def _publish(
+            self,
+            namespace: str,
+            payload: bytes,
+            ttl: int | None = None,
+            timeout: int | float | None = None,
+    ) -> None:
         """Publish the payload to the namespace."""
         raise NotImplementedError(
             "This method needs to be implemented in a subclass"
@@ -417,6 +422,7 @@ class Dispatcher:
             room: str | None = None,
             namespace: str | None = None,
             ttl: int | None = None,
+            timeout: int | float | None = None,
             **kwargs
     ) -> bool:
         """Emit an event to a single or multiple namespace(s)
@@ -426,7 +432,8 @@ class Dispatcher:
         :param to: The recipient of the message.
         :param room: An alias to `to`
         :param namespace: The namespace to which the event will be sent.
-        :param ttl: Time to live of the message. Only available with rabbitmq
+        :param ttl: Time to live of the message. Only available with rabbitmq.
+        :param timeout: Timeout to deliver the message. Only available with rabbitmq.
 
         :return: True for success, False for failure
         """
@@ -436,7 +443,7 @@ class Dispatcher:
         room = to or room
         payload: bytes = self._generate_payload(event, room, data)
         try:
-            self._publish(namespace, payload, ttl)
+            self._publish(namespace, payload, ttl, timeout)
             return True
         except ConnectionError:
             return False
@@ -547,8 +554,13 @@ class AsyncDispatcher(Dispatcher):
             "This method needs to be implemented in a subclass"
         )
 
-    async def _publish(self, namespace: str, payload: bytes,
-                       ttl: int | None = None) -> None:
+    async def _publish(
+            self,
+            namespace: str,
+            payload: bytes,
+            ttl: int | None = None,
+            timeout: int | float | None = None,
+    ) -> None:
         """Publish the payload to the namespace."""
         raise NotImplementedError(
             "This method needs to be implemented in a subclass"
@@ -752,6 +764,7 @@ class AsyncDispatcher(Dispatcher):
             room: str | None = None,
             namespace: str | None = None,
             ttl: int | None = None,
+            timeout: int | float | None = None,
             **kwargs
     ) -> bool:
         """Emit an event to a single or multiple namespace(s)
@@ -761,7 +774,8 @@ class AsyncDispatcher(Dispatcher):
         :param to: The recipient of the message.
         :param room: An alias to `to`
         :param namespace: The namespace to which the event will be sent.
-        :param ttl: Time to live of the message. Only available with rabbitmq
+        :param ttl: Time to live of the message. Only available with rabbitmq.
+        :param timeout: Timeout to deliver the message. Only available with rabbitmq.
 
         :return: True for success, False for failure
         """
@@ -771,7 +785,7 @@ class AsyncDispatcher(Dispatcher):
         room = to or room
         payload: bytes = self._generate_payload(event, room, data)
         try:
-            await self._publish(namespace, payload, ttl)
+            await self._publish(namespace, payload, ttl, timeout)
             return True
         except ConnectionError:
             return False

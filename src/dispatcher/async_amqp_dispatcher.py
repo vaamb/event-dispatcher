@@ -124,7 +124,8 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
             self,
             namespace: str,
             payload: bytes,
-            ttl: int | None = None
+            ttl: int | None = None,
+            timeout: int | float | None = None,
     ) -> None:
         try:
             if self.publisher_connection.transport is None:
@@ -139,6 +140,7 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
                         content_type='application/binary', content_encoding='binary'
                     ),
                     routing_key=namespace,
+                    timeout=timeout,
                     **self.publisher_options
                 )
         except Exception as e:

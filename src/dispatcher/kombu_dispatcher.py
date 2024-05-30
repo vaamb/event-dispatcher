@@ -120,18 +120,16 @@ class KombuDispatcher(Dispatcher):
             self,
             namespace: str,
             payload: bytes,
-            ttl: int | None = None
+            ttl: int | None = None,
+            timeout: int | float | None = None,
     ) -> None:
         channel = self._channel(self.publisher_connection)
         try:
             with kombu.Producer(channel, exchange=self._exchange()) as producer:
-                options = {**self.publisher_options}
-                if not options.get("timeout"):
-                    options["timeout"] = 10.0
                 producer.publish(
                     payload, routing_key=namespace, expiration=ttl,
                     content_type='application/binary', content_encoding='binary',
-                    **options)
+                    timeout=timeout, **self.publisher_options)
         except Exception as e:
             self.logger.error(
                 f"Encountered an exception while trying to publish message. "

@@ -82,7 +82,8 @@ class RedisDispatcher(Dispatcher):
             self,
             namespace: str,
             payload: bytes,
-            ttl: int | None = None
+            ttl: int | None = None,
+            timeout: int | float | None = None,
     ) -> int:
         try:
             return self.redis.publish(namespace, payload)
