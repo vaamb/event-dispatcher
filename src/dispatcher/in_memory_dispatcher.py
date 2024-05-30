@@ -36,7 +36,8 @@ class InMemoryDispatcher(Dispatcher):
             self,
             namespace: str,
             payload: dict,
-            ttl: int | None = None
+            ttl: int | None = None,
+            timeout: int | float | None = None,
     ) -> int:
         return self.pubsub.publish(namespace, payload)
 

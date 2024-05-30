@@ -88,7 +88,8 @@ class AsyncRedisDispatcher(AsyncDispatcher):
             self,
             namespace: str,
             payload: bytes,
-            ttl: int | None = None
+            ttl: int | None = None,
+            timeout: int | float | None = None,
     ) -> int:
         try:
             return await self.redis.publish(namespace, payload)

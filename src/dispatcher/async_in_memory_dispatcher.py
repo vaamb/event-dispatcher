@@ -34,7 +34,8 @@ class AsyncInMemoryDispatcher(AsyncDispatcher):
             self,
             namespace: str,
             payload: dict,
-            ttl: int | None = None
+            ttl: int | None = None,
+            timeout: int | float | None = None,
     ) -> int:
         return await self.pubsub.publish(namespace, payload)
 
