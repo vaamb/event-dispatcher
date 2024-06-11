@@ -439,7 +439,7 @@ class Dispatcher:
         """
         if isinstance(namespace, str):
             namespace = namespace.strip("/")
-        namespace = namespace or "root"
+        namespace = namespace or self.namespace
         room = to or room
         payload: bytes = self._generate_payload(event, room, data)
         try:
@@ -781,7 +781,7 @@ class AsyncDispatcher(Dispatcher):
         """
         if isinstance(namespace, str):
             namespace = namespace.strip("/")
-        namespace = namespace or "root"
+        namespace = namespace or self.namespace
         room = to or room
         payload: bytes = self._generate_payload(event, room, data)
         try:
