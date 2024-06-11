@@ -43,7 +43,7 @@ class Dispatcher:
 
     def __init__(
             self,
-            namespace: str,
+            namespace: str = "event_dispatcher",
             parent_logger: logging.Logger = None,
             reconnection: bool = True,
     ) -> None:
@@ -439,7 +439,7 @@ class Dispatcher:
         """
         if isinstance(namespace, str):
             namespace = namespace.strip("/")
-        namespace = namespace or "root"
+        namespace = namespace or self.namespace
         room = to or room
         payload: bytes = self._generate_payload(event, room, data)
         try:
@@ -538,7 +538,7 @@ class AsyncDispatcher(Dispatcher):
 
     def __init__(
             self,
-            namespace: str,
+            namespace: str = "event_dispatcher",
             parent_logger: logging.Logger = None,
             reconnection: bool = True,
     ) -> None:
@@ -781,7 +781,7 @@ class AsyncDispatcher(Dispatcher):
         """
         if isinstance(namespace, str):
             namespace = namespace.strip("/")
-        namespace = namespace or "root"
+        namespace = namespace or self.namespace
         room = to or room
         payload: bytes = self._generate_payload(event, room, data)
         try:

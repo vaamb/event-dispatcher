@@ -21,7 +21,7 @@ class AsyncInMemoryDispatcher(AsyncDispatcher):
     """
     def __init__(
             self,
-            namespace: str,
+            namespace: str = "event_dispatcher",
             parent_logger: logging.Logger = None
     ) -> None:
         self.pubsub: AsyncPubSub = AsyncPubSub()
