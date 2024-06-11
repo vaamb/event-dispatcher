@@ -32,7 +32,7 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
     """
     def __init__(
             self,
-            namespace: str,
+            namespace: str = "event_dispatcher",
             url: str = "amqp://guest:guest@localhost:5672//",
             parent_logger: logging.Logger = None,
             connection_options: dict = None,

@@ -43,7 +43,7 @@ class Dispatcher:
 
     def __init__(
             self,
-            namespace: str,
+            namespace: str = "event_dispatcher",
             parent_logger: logging.Logger = None,
             reconnection: bool = True,
     ) -> None:
@@ -538,7 +538,7 @@ class AsyncDispatcher(Dispatcher):
 
     def __init__(
             self,
-            namespace: str,
+            namespace: str = "event_dispatcher",
             parent_logger: logging.Logger = None,
             reconnection: bool = True,
     ) -> None:

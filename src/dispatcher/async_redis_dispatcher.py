@@ -31,7 +31,7 @@ class AsyncRedisDispatcher(AsyncDispatcher):
     """
     def __init__(
             self,
-            namespace: str,
+            namespace: str = "event_dispatcher",
             url: str = "redis://localhost:6379/0",
             parent_logger: logging.Logger = None,
             redis_options: dict = None,

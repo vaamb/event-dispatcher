@@ -23,7 +23,7 @@ class InMemoryDispatcher(Dispatcher):
     """
     def __init__(
             self,
-            namespace: str,
+            namespace: str = "event_dispatcher",
             parent_logger: logging.Logger = None
     ) -> None:
         self.pubsub = StupidPubSub()

@@ -32,7 +32,7 @@ class KombuDispatcher(Dispatcher):
     """
     def __init__(
             self,
-            namespace: str,
+            namespace: str = "event_dispatcher",
             url: str = "memory://",
             parent_logger: logging.Logger = None,
             exchange_options: dict = None,
