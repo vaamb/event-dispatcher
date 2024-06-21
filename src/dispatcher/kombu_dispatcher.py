@@ -145,14 +145,11 @@ class KombuDispatcher(Dispatcher):
         while self.running:
             try:
                 with self.listener_connection.SimpleQueue(listener_queue) as q:
-                    while self.running:
-                        try:
-                            message: kombu.Message = q.get(block=True, timeout=1)
-                        except queue.Empty:
-                            pass
-                        else:
-                            message.ack()
-                            yield message.body
+                    message: kombu.Message = q.get(block=True, timeout=60)
+                    message.ack()
+                    yield message.body
+            except queue.Empty:
+                continue
             except Exception as e:  # noqa
                 self.logger.error(
                     f"Encountered an exception while trying to listen to "
