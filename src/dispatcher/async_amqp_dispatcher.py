@@ -165,7 +165,6 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
     async def _listen(self) -> AsyncIterator[bytes]:
         await self._ensure_connected(self.listener_connection)
         async with self.listener_connection.channel() as channel:
-            await channel.get_underlay_channel()
             exchange = await self._exchange(channel)
             listener_queue = await self._queue(channel, exchange)
 
