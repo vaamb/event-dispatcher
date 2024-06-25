@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from asyncio import Queue
 import logging
 from typing import AsyncIterator
 
@@ -164,18 +165,28 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
 
     async def _listen(self) -> AsyncIterator[bytes]:
         await self._ensure_connected(self.listener_connection)
+        message_queue = Queue()
+
+        async def end_listening(*args, **kwargs):
+            await message_queue.put(None)
+
+        async def on_message(message: "aio_pika.IncomingMessage") -> None:
+            await message_queue.put(message)
+
+        self.listener_connection.close_callbacks.add(end_listening)
+
         async with self.listener_connection.channel() as channel:
             exchange = await self._exchange(channel)
-            listener_queue = await self._queue(channel, exchange)
+            listener_queue: aio_pika.Queue = await self._queue(channel, exchange)
+            await listener_queue.consume(on_message)
 
             while self.running:
                 try:
-                    message: aio_pika.IncomingMessage = await listener_queue.get(timeout=60)
+                    message: aio_pika.IncomingMessage = await message_queue.get()
+                    if message is None:
+                        raise ConnectionError("Connection with the broker closed.")
                     await message.ack()
                     yield message.body
-                except aio_pika.exceptions.QueueEmpty:
-                    # listener_queue.get() timed out, start a new cycle
-                    continue
                 except Exception as e:  # noqa
                     self.logger.error(
                         f"Encountered an exception while trying to listen to "
