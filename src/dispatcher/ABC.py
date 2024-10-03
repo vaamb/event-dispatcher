@@ -141,7 +141,7 @@ class Dispatcher:
         return self._PAYLOAD_SEPARATOR + self._DATA_BINARY
 
     def _encode_data(self, data: DataType) -> bytes:
-        if type(data) == type(bytes):
+        if isinstance(data, (bytes, bytearray)):
             return self._DATA_BINARY_SEPARATOR + data
         else:
             return self._DATA_OBJECT_SEPARATOR + self.serializer.dumps(data)
