@@ -149,7 +149,7 @@ class Dispatcher:
         else:
             rv = bytearray()
             rv += self._DATA_OBJECT_SEPARATOR
-            rv += data
+            rv += self.serializer.dumps(data)
             return rv
 
     def _generate_payload(
