@@ -173,7 +173,7 @@ class Dispatcher:
             raise ValueError("Unknown type of data")
 
     def _parse_payload(self, payload: bytes) -> PayloadDict:
-        base_info, base_data = payload.split(self._PAYLOAD_SEPARATOR, maxsplit=2)
+        base_info, base_data = payload.split(self._PAYLOAD_SEPARATOR, maxsplit=1)
         info = self.serializer.loads(base_info)
         return PayloadDict(
             host_uid=UUID(info["host_uid"]),
