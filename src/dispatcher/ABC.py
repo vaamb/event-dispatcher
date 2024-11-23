@@ -18,7 +18,7 @@ from .exceptions import StopEvent, UnknownEvent
 from .serializer import Serializer
 
 
-DataType: bytes | dict | list | str | tuple | None
+DataType: bytes | bytearray | dict | list | str | tuple | None
 
 
 class PayloadDict(TypedDict):
@@ -93,7 +93,7 @@ class Dispatcher:
     def _publish(
             self,
             namespace: str,
-            payload: bytes,
+            payload: bytes | bytearray,
             ttl: int | None = None,
             timeout: int | float | None = None,
     ) -> None:
@@ -140,28 +140,36 @@ class Dispatcher:
     def _DATA_BINARY_SEPARATOR(self) -> bytes:
         return self._PAYLOAD_SEPARATOR + self._DATA_BINARY
 
-    def _encode_data(self, data: DataType) -> bytes:
+    def _encode_data(self, data: DataType) -> bytearray:
         if isinstance(data, (bytes, bytearray)):
-            return self._DATA_BINARY_SEPARATOR + data
+            rv = bytearray()
+            rv += self._DATA_BINARY_SEPARATOR
+            rv += data
+            return rv
         else:
-            return self._DATA_OBJECT_SEPARATOR + self.serializer.dumps(data)
+            rv = bytearray()
+            rv += self._DATA_OBJECT_SEPARATOR
+            rv += data
+            return rv
 
     def _generate_payload(
             self,
             event: str,
             room: str | UUID | None = None,
             data: DataType = None,
-    ) -> bytes:
+    ) -> bytearray:
         if isinstance(room, UUID):
             room = room.hex
-        return (
-            self.serializer.dumps({
+        rv = bytearray()
+        rv += self.serializer.dumps(
+            {
                 "host_uid": self.host_uid.hex,
                 "event": event,
-                "room": room
-            }) +
-            self._encode_data(data)
+                "room": room,
+            }
         )
+        rv += self._encode_data(data)
+        return rv
 
     def _decode_data(self, data: bytes) -> DataType:
         data_type = data[:1]
@@ -441,7 +449,7 @@ class Dispatcher:
             namespace = namespace.strip("/")
         namespace = namespace or self.namespace
         room = to or room
-        payload: bytes = self._generate_payload(event, room, data)
+        payload: bytearray = self._generate_payload(event, room, data)
         try:
             self._publish(namespace, payload, ttl, timeout)
             return True
@@ -783,7 +791,7 @@ class AsyncDispatcher(Dispatcher):
             namespace = namespace.strip("/")
         namespace = namespace or self.namespace
         room = to or room
-        payload: bytes = self._generate_payload(event, room, data)
+        payload: bytearray = self._generate_payload(event, room, data)
         try:
             await self._publish(namespace, payload, ttl, timeout)
             return True
