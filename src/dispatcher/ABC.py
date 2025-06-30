@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 from asyncio import Task
 from collections.abc import Callable
-from functools import cached_property
 import inspect
 import logging
 from threading import Event, Thread
@@ -132,23 +131,15 @@ class Dispatcher:
                 pass
 
     # Payload-related methods
-    @cached_property
-    def _DATA_OBJECT_SEPARATOR(self) -> bytes:
-        return self._PAYLOAD_SEPARATOR + self._DATA_OBJECT
-
-    @cached_property
-    def _DATA_BINARY_SEPARATOR(self) -> bytes:
-        return self._PAYLOAD_SEPARATOR + self._DATA_BINARY
-
     def _encode_data(self, data: DataType) -> bytearray:
         if isinstance(data, (bytes, bytearray)):
             rv = bytearray()
-            rv += self._DATA_BINARY_SEPARATOR
+            rv += self._DATA_BINARY
             rv += data
             return rv
         else:
             rv = bytearray()
-            rv += self._DATA_OBJECT_SEPARATOR
+            rv += self._DATA_OBJECT
             rv += self.serializer.dumps(data)
             return rv
 
@@ -168,6 +159,7 @@ class Dispatcher:
                 "room": room,
             }
         )
+        rv += self._PAYLOAD_SEPARATOR
         rv += self._encode_data(data)
         return rv
 
