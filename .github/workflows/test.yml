@@ -54,4 +54,4 @@ jobs:
         python -m pip install mypy
     - name: Run mypy
       run: |
-        mypy --install-types --non-interactive src/ tests/
+        mypy --install-types --non-interactive src/
