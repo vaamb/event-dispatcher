@@ -155,9 +155,15 @@ def test_lifecycle():
         dispatcher.run(block=False)
         assert dispatcher.running is True
 
+        with pytest.raises(RuntimeError):
+            dispatcher.run(block=False)
+
         # Test disconnect
         dispatcher.stop()
         mock_publish.assert_called_once()
+
+        with pytest.raises(RuntimeError):
+            dispatcher.stop()
 
         assert dispatcher.connected is False
         assert dispatcher.running is False
@@ -225,9 +231,15 @@ async def test_async_lifecycle():
         await dispatcher.run(block=False)
         assert dispatcher.running is True
 
+        with pytest.raises(RuntimeError):
+            await dispatcher.run(block=False)
+
         # Test disconnect
         await dispatcher.stop()
         mock_publish.assert_called_once()
+
+        with pytest.raises(RuntimeError):
+            await dispatcher.stop()
 
         assert dispatcher.connected is False
         assert dispatcher.running is False
