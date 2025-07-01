@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from queue import Queue, Empty
-import time
-from typing import Iterable, AsyncIterable
 
 
 class Broker:
@@ -38,9 +36,6 @@ class AsyncBroker(Broker):
                 pushed += 1
         return pushed
 
-
-_broker = Broker()
-_async_broker = AsyncBroker()
 
 _brokers: dict[str, Broker ] = {}
 _async_brokers: dict[str, AsyncBroker] = {}

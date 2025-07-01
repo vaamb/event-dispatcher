@@ -4,9 +4,9 @@ import time
 
 import pytest
 
-from dispatcher.in_memory_dispatcher import InMemoryDispatcher
 from dispatcher.async_in_memory_dispatcher import AsyncInMemoryDispatcher
 from dispatcher.exceptions import StopEvent
+from dispatcher.in_memory_dispatcher import InMemoryDispatcher
 
 
 # Test data
