@@ -5,19 +5,19 @@ import uuid
 
 import pytest
 
-from dispatcher.ABC import Dispatcher, AsyncDispatcher
+from dispatcher.ABC import BaseDispatcher, Dispatcher, AsyncDispatcher
 
 
-# Common methods
+# BaseDispatcher
 def test_custom_namespace():
     """Test initialization with custom namespace."""
-    dispatcher = Dispatcher(namespace="test_namespace")
+    dispatcher = BaseDispatcher(namespace="test_namespace")
     assert dispatcher.namespace == "test_namespace"
 
 
 def test_encode_decode_data():
     """Test encoding and decoding of different data types."""
-    dispatcher = Dispatcher()
+    dispatcher = BaseDispatcher()
 
     # Test with dict
     test_dict = {"key": "value"}
@@ -74,7 +74,7 @@ def test_encode_decode_data():
 
 def test_generate_parse_payload():
     """Test payload generation and parsing."""
-    dispatcher = Dispatcher()
+    dispatcher = BaseDispatcher()
     test_event = "test_event"
     test_room = "test_room"
     test_data = {"key": "value"}
@@ -96,7 +96,7 @@ def test_generate_parse_payload():
 
 def test_data_as_list():
     """Test conversion of data to list."""
-    dispatcher = Dispatcher()
+    dispatcher = BaseDispatcher()
 
     assert dispatcher._data_as_list(None) == []
     assert dispatcher._data_as_list("test") == ["test"]
@@ -137,7 +137,7 @@ def test_emit():
         mock_publish.assert_called_once()
 
 
-def test_connect_disconnect():
+def test_lifecycle():
     """Test connect and disconnect flow."""
     dispatcher = Dispatcher()
 
@@ -150,6 +150,10 @@ def test_connect_disconnect():
         # Test connect
         dispatcher.connect()
         assert dispatcher.connected is True
+
+        # Test running
+        dispatcher.run(block=False)
+        assert dispatcher.running is True
 
         # Test disconnect
         dispatcher.stop()
@@ -203,7 +207,7 @@ async def test_async_emit():
 
 
 @pytest.mark.asyncio
-async def test_async_connect_disconnect():
+async def test_async_lifecycle():
     """Test async connect and disconnect flow."""
     dispatcher = AsyncDispatcher()
 
@@ -216,6 +220,10 @@ async def test_async_connect_disconnect():
         # Test connect
         await dispatcher.connect()
         assert dispatcher.connected is True
+
+        # Test running
+        await dispatcher.run(block=False)
+        assert dispatcher.running is True
 
         # Test disconnect
         await dispatcher.stop()
