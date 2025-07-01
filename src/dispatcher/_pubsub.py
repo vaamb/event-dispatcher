@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from queue import Queue, Empty
-import time
-from typing import Iterable, AsyncIterable
 
 
 class Broker:
@@ -39,18 +37,30 @@ class AsyncBroker(Broker):
         return pushed
 
 
-_broker = Broker()
-_async_broker = AsyncBroker()
+_brokers: dict[str, Broker ] = {}
+_async_brokers: dict[str, AsyncBroker] = {}
+
+
+def _get_broker(namespace: str) -> Broker:
+    if namespace not in _brokers:
+        _brokers[namespace] = Broker()
+    return _brokers[namespace]
+
+
+def _get_async_broker(namespace: str) -> AsyncBroker:
+    if namespace not in _async_brokers:
+        _async_brokers[namespace] = AsyncBroker()
+    return _async_brokers[namespace]
 
 
 class StupidPubSub:
     __slots__ = ["broker", "channels", "messages"]
 
-    def __init__(self) -> None:
-        self._init()
+    def __init__(self, namespace: str) -> None:
+        self._init(namespace)
 
-    def _init(self):
-        self.broker = _broker
+    def _init(self, namespace: str):
+        self.broker: Broker = _get_broker(namespace)
         self.broker.link(self)
         self.channels: set[str] = set()
         self.messages = Queue()
@@ -78,8 +88,8 @@ class StupidPubSub:
 
 
 class AsyncPubSub(StupidPubSub):
-    def _init(self):
-        self.broker = _async_broker
+    def _init(self, namespace: str):
+        self.broker: AsyncBroker = _get_async_broker(namespace)
         self.broker.link(self)
         self.channels: set[str] = set()
         self.messages = asyncio.Queue()

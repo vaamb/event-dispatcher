@@ -26,7 +26,7 @@ class InMemoryDispatcher(Dispatcher):
             namespace: str = "event_dispatcher",
             parent_logger: logging.Logger = None
     ) -> None:
-        self.pubsub = StupidPubSub()
+        self.pubsub = StupidPubSub(namespace)
         super().__init__(namespace, parent_logger)
 
     def _broker_reachable(self) -> bool:
