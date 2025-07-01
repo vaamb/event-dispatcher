@@ -547,8 +547,8 @@ class Dispatcher(BaseDispatcher):
             ValueError: If a task with the same name is already running.
             RuntimeError: If the dispatcher is not running.
         """
-        if not self.running or self._shutdown_event.is_set():
-            raise RuntimeError("Cannot start background task: dispatcher is not running")
+        #if not self.running or self._shutdown_event.is_set():
+        #    raise RuntimeError("Cannot start background task: dispatcher is not running")
 
         task_name = task_name or f"dispatcher-{target.__name__}"
 
@@ -1047,8 +1047,8 @@ class AsyncDispatcher(BaseDispatcher):
             ValueError: If a task with the same name is already running.
             RuntimeError: If the dispatcher is not running.
         """
-        if not self.running or self._shutdown_event.is_set():
-            raise RuntimeError("Cannot start background task: dispatcher is not running")
+        #if not self.running or self._shutdown_event.is_set():
+        #    raise RuntimeError("Cannot start background task: dispatcher is not running")
 
         task_name = task_name or f"dispatcher-{target.__name__}"
 
