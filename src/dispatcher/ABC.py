@@ -668,7 +668,7 @@ class Dispatcher(BaseDispatcher):
     def stop(self) -> None:
         """Stop the dispatcher and clean up resources."""
         if not self.running:
-            return
+            raise RuntimeError("Not running")
 
         self.logger.info("Stopping dispatcher...")
 
@@ -1158,7 +1158,7 @@ class AsyncDispatcher(BaseDispatcher):
     async def stop(self) -> None:
         """Stop the dispatcher and clean up resources."""
         if not self.running:
-            return
+            raise RuntimeError("Not running")
 
         self.logger.info("Stopping dispatcher...")
 
