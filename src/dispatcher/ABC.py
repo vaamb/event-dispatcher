@@ -5,7 +5,7 @@ from asyncio import Task
 from collections.abc import Callable
 import inspect
 import logging
-from threading import Event, Thread
+from threading import Event, RLock, Thread
 import time
 from typing import AsyncIterator, Iterator, TypedDict
 import uuid
@@ -32,8 +32,8 @@ STOP_SIGNAL = "__STOP__"
 context = ContextVarWrapper()
 
 
-class Dispatcher:
-    asyncio_based: bool = False
+class BaseDispatcher:
+    asyncio_based: bool
     _PAYLOAD_SEPARATOR: bytes = b"\x1d\x1d"
     _DATA_OBJECT: bytes = b"\x31"  # 1
     _DATA_BINARY: bytes = b"\x32"  # 2
@@ -51,6 +51,7 @@ class Dispatcher:
         :param namespace: The namespace events will be sent from and to.
         :param parent_logger: A logging.Logger instance. The dispatcher logger
                               will be set to 'parent_logger.namespace'.
+        :param reconnection: Whether to attempt reconnection on connection loss.
         """
         logger = None
         if parent_logger:
@@ -59,16 +60,19 @@ class Dispatcher:
         self.logger: logging.Logger = logger or logging.getLogger(f"dispatcher.{namespace}")
         self.reconnection: bool = reconnection
         self.host_uid: UUID = uuid.uuid4()
-        self.rooms: set[str] = set()
-        self.rooms.add(self.host_uid.hex)
-        self._running = Event()
-        self._connected = Event()
-        self._reconnecting = Event()
+        self.rooms: set[str] = {self.host_uid.hex}
+
+        # Event handling
         self.event_handlers: set[EventHandler] = set()
-        self.handlers: dict[str: Callable] = {}
+        self.handlers: dict[str, Callable] = {}
         self._fallback: Callable | None = None
         self._sessions: dict = {}
-        self._threads: dict[str, Thread] | None = {}
+
+        # State
+        self._running: Event | asyncio.Event = Event()
+        self._connected: Event | asyncio.Event = Event()
+        self._reconnecting: Event | asyncio.Event = Event()
+        self._shutdown_event: Event | asyncio.Event = Event()
 
     def __repr__(self):
         return (
@@ -77,58 +81,20 @@ class Dispatcher:
         )
 
     @property
-    def threads(self) -> dict[str, Thread]:
-        if not self.asyncio_based:
-            return self._threads
-        raise AttributeError("AsyncDispatcher do not have threads")
+    def running(self):
+        return self._running.is_set()
 
-    # Methods to implement based on broker used
-    def _broker_reachable(self) -> bool:
-        """Check if it is possible to connect to the broker."""
-        raise NotImplementedError(
-            "This method needs to be implemented in a subclass"
-        )
+    @property
+    def connected(self):
+        return self._connected.is_set()
 
-    def _publish(
-            self,
-            namespace: str,
-            payload: bytes | bytearray,
-            ttl: int | None = None,
-            timeout: int | float | None = None,
-    ) -> None:
-        """Publish the payload to the namespace."""
-        raise NotImplementedError(
-            "This method needs to be implemented in a subclass"
-        )
+    @property
+    def reconnecting(self):
+        return not self.connected and self._reconnecting.is_set()
 
-    def _listen(self) -> Iterator[bytes]:
-        """Get a generator that yields payloads that will be parsed."""
-        raise NotImplementedError(
-            "This method needs to be implemented in a subclass"
-        )
-
-    # Handling of broker-connection related events
-    def _handle_broker_connect(self) -> None:
-        if not self.connected:
-            self._trigger_connect_event()
-        self._connected.set()
-
-    def _handle_broker_disconnect(self) -> None:
-        time.sleep(0)
-        if self.connected:
-            self._trigger_disconnect_event()
-        self._connected.clear()
-
-    def _handle_stop_signal(self, *args, **kwargs) -> None:
-        self._handle_broker_disconnect()
-        self._running.clear()
-        self._connected.clear()
-        self._reconnecting.clear()
-        for thread in [*self._threads.values()]:
-            try:
-                thread.join(timeout=0)
-            except RuntimeError:  # Trying to close current thread
-                pass
+    @property
+    def stopped(self):
+        return self._shutdown_event.is_set()
 
     # Payload-related methods
     def _encode_data(self, data: DataType) -> bytearray:
@@ -189,26 +155,137 @@ class Dispatcher:
             return []
         return [data]
 
-    # Events triggering
-    def _trigger_connect_event(self) -> None:
-        return self._trigger_event(
-            "connect", "sid", {"REMOTE_ADDR": self.namespace})
+    # Event handling
+    def _get_event_handlers(self) -> set[EventHandler]:
+        raise NotImplementedError
 
-    def _trigger_disconnect_event(self) -> None:
-        return self._trigger_event("disconnect", "sid")
+    def _get_event_handler(self, event: str) -> Callable:
+        """Get the appropriate handler for the given event.
 
-    def _get_event_handler(self, event: str):
+        Args:
+            event: The event name to get the handler for.
+
+        Returns:
+            The event handler callable.
+
+        Raises:
+            UnknownEvent: If no handler is found and no fallback is set.
+        """
+        # First check direct handlers
         if event in self.handlers:
             return self.handlers[event]
-        elif self.event_handlers:
-            for e in self.event_handlers:
-                event_handler = e.get_handler(event)
-                if event_handler is not None:
-                    return event_handler
+
+        # Then check event handlers:
+        for handler in self._get_event_handlers():
+            event_handler = handler.get_handler(event)
+            if event_handler is not None:
+                return event_handler
+
+        # Finally, use fallback if available
         if self._fallback is not None:
             return self._fallback
-        raise UnknownEvent(
-            f"Received unknown event '{event}' and no fallback function set")
+
+        raise UnknownEvent(f"No handler found for event '{event}'")
+
+    @property
+    def fallback(self) -> Callable:
+        return self._fallback
+
+    @fallback.setter
+    def fallback(self, fct: Callable | None = None) -> None:
+        """Set the fallback function that will be called if no event handler
+        is found.
+        """
+        self._fallback = fct
+
+    # Rooms management
+    def enter_room(self, room: str) -> None:
+        self.rooms.add(room)
+
+    def leave_room(self, room: str) -> None:
+        if room in self.rooms:
+            self.rooms.remove(room)
+
+
+class Dispatcher(BaseDispatcher):
+    asyncio_based: bool = False
+
+    def __init__(
+            self,
+            namespace: str = "event_dispatcher",
+            parent_logger: logging.Logger | None = None,
+            reconnection: bool = True,
+    ) -> None:
+        """Base class for a python-socketio inspired event dispatcher.
+
+        :param namespace: The namespace events will be sent from and to.
+        :param parent_logger: A logging.Logger instance. The dispatcher logger
+                              will be set to 'parent_logger.namespace'.
+        :param reconnection: Whether to attempt reconnection on connection loss.
+        """
+        super().__init__(namespace, parent_logger, reconnection)
+
+        # Thread management
+        self._threads: dict[str, Thread] = {}
+        self._threads_lock = RLock()
+        self._event_handlers_lock = RLock()
+        self._sessions_lock = RLock()
+
+    @property
+    def threads(self) -> dict[str, Thread]:
+        if not self.asyncio_based:
+            return self._threads
+        raise AttributeError("AsyncDispatcher do not have threads")
+
+    # Methods to implement based on broker used
+    def _broker_reachable(self) -> bool:
+        """Check if it is possible to connect to the broker."""
+        raise NotImplementedError(
+            "This method needs to be implemented in a subclass"
+        )
+
+    def _publish(
+            self,
+            namespace: str,
+            payload: bytes | bytearray,
+            ttl: int | None = None,
+            timeout: int | float | None = None,
+    ) -> None:
+        """Publish the payload to the namespace."""
+        raise NotImplementedError(
+            "This method needs to be implemented in a subclass"
+        )
+
+    def _listen(self) -> Iterator[bytes]:
+        """Get a generator that yields payloads that will be parsed."""
+        raise NotImplementedError(
+            "This method needs to be implemented in a subclass"
+        )
+
+    # Handling of broker-connection related events
+    def _handle_broker_connect(self) -> None:
+        if not self.connected:
+            self._trigger_connect_event()
+        self._connected.set()
+
+    def _handle_broker_disconnect(self) -> None:
+        time.sleep(0)
+        if self.connected:
+            self._trigger_disconnect_event()
+        self._connected.clear()
+
+    def _handle_stop_signal(self, *args, **kwargs) -> None:
+        self._handle_broker_disconnect()
+        self._shutdown_event.set()
+        self._running.clear()
+        self._connected.clear()
+        self._reconnecting.clear()
+        self._stop_threads()
+
+    # Events triggering
+    def _get_event_handlers(self) -> set[EventHandler]:
+        with self._event_handlers_lock:
+            return self.event_handlers
 
     def _trigger_event(
             self,
@@ -216,25 +293,53 @@ class Dispatcher:
             sid: UUID,
             *args,
     ) -> None:
+        """Trigger an event with the given arguments.
+
+        Args:
+            event: The name of the event to trigger.
+            sid: The session ID of the sender.
+            *args: Arguments to pass to the event handler.
+
+        Returns:
+            The result of the event handler, or None if the event was not handled.
+
+        Raises:
+            StopEvent: If the event handler raises StopEvent.
+        """
+        if event == STOP_SIGNAL:
+            raise StopEvent("Received stop signal")
+
         try:
-            if event == STOP_SIGNAL:
-                raise StopEvent
-            else:
-                event_handler = self._get_event_handler(event)
-                signature = inspect.signature(event_handler)
-                if "sid" in signature.parameters:
-                    return event_handler(sid, *args)
-                return event_handler(*args)
-        except StopEvent:
-            raise StopEvent
-        except UnknownEvent:
+            event_handler = self._get_event_handler(event)
+            signature = inspect.signature(event_handler)
+
+            # Check if the handler expects a 'sid' parameter
+            need_sid = "sid" in signature.parameters
+
+            # Prepare arguments
+            handler_args = (sid, *args) if need_sid else args
+
+            # Call the handler
+            event_handler(*handler_args)
+
+        except UnknownEvent as e:
             if event not in {"connect", "disconnect"}:
-                self.logger.warning(f"No event '{event}' configured")
+                self.logger.warning(f"No handler for event '{event}': {e}")
+
+        except StopEvent:
+            # Re-raise StopEvent to propagate it up the call stack
+            raise
+
         except Exception as e:
-            self.logger.error(
-                f"Encountered an error while handling event '{event}'. Error "
-                f"msg: `{e.__class__.__name__}: {e}`"
-            )
+            error_msg = f"Error in event handler for '{event}': {e}"
+            self.logger.error(error_msg, exc_info=True)
+
+    def _trigger_connect_event(self) -> None:
+        return self._trigger_event(
+            "connect", "sid", {"REMOTE_ADDR": self.namespace})
+
+    def _trigger_disconnect_event(self) -> None:
+        return self._trigger_event("disconnect", "sid")
 
     # Loops running once `run()` is called
     def _reconnection_loop(self) -> None:
@@ -317,42 +422,12 @@ class Dispatcher:
                 break
 
     """
-    API calls
+    API
     """
-    @property
-    def running(self):
-        return self._running.is_set()
-
-    @property
-    def connected(self):
-        return self._connected.is_set()
-
-    @property
-    def reconnecting(self):
-        return not self.connected and self._reconnecting.is_set()
-
     def initialize(self) -> None:
         """Method to call other methods just before starting the background thread.
         """
         pass
-
-    @property
-    def fallback(self) -> Callable:
-        return self._fallback
-
-    @fallback.setter
-    def fallback(self, fct: Callable | None = None) -> None:
-        """Set the fallback function that will be called if no event handler
-        is found.
-        """
-        self._fallback = fct
-
-    def enter_room(self, room: str) -> None:
-        self.rooms.add(room)
-
-    def leave_room(self, room: str) -> None:
-        if room in self.rooms:
-            self.rooms.remove(room)
 
     def session(self, sid: UUID | str):
         class _session_ctx_manager:
@@ -383,9 +458,10 @@ class Dispatcher:
                 f"{self.__class__.__name__} requires a synchronous EventHandler"
             )
         event_handler._set_dispatcher(self)
-        self.event_handlers.add(event_handler)
+        with self._event_handlers_lock:
+            self.event_handlers.add(event_handler)
 
-    def on(self, event: str, handler: Callable = None):
+    def on(self, event: str, handler: Callable = None) -> None:
         """Register an event handler
 
         :param event: The event name.
@@ -407,7 +483,8 @@ class Dispatcher:
             to emit an event back to the sender
         """
         def set_handler(_handler: Callable):
-            self.handlers[event] = _handler
+            with self._event_handlers_lock:
+                self.handlers[event] = _handler
             return _handler
 
         if handler is None:
@@ -455,22 +532,82 @@ class Dispatcher:
             task_name: str | None = None,
             **kwargs
     ) -> Thread:
-        """Override to use another threading method"""
+        """Start a background task in a managed thread.
+
+        Args:
+            target: The target function to run in the background.
+            *args: Positional arguments to pass to the target function.
+            task_name: Optional name for the task. If not provided, a name will be generated.
+            **kwargs: Keyword arguments to pass to the target function.
+
+        Returns:
+            Thread: The thread object that was started.
+
+        Raises:
+            ValueError: If a task with the same name is already running.
+            RuntimeError: If the dispatcher is not running.
+        """
+        #if not self.running or self._shutdown_event.is_set():
+        #    raise RuntimeError("Cannot start background task: dispatcher is not running")
+
         task_name = task_name or f"dispatcher-{target.__name__}"
-        task = self._threads.get(task_name)
-        if task:
-            if task.is_alive():
+
+        # Create a wrapper function
+        def wrapped_target():
+            try:
+                target(*args, **kwargs)
+            except Exception as e:
+                self.logger.error(
+                    f"Background task '{task_name}' failed: {e}",
+                    exc_info=True
+                )
+            finally:
+                with self._threads_lock:
+                    if task_name in self._threads:
+                        del self._threads[task_name]
+
+        with self._threads_lock:
+            # Clean up completed threads
+            self._cleanup_threads()
+
+            # Check if a task with the same name is already running
+            if task_name in self._threads:
                 raise ValueError(
-                    f"A background task named {task_name} is already running")
-        t = Thread(
-            target=target,
-            args=args,
-            name=task_name,
-            daemon=True,
-        )
-        t.start()
-        self._threads[task_name] = t
-        return t
+                    f"A background task named '{task_name}' is already running")
+
+            # Create and store the thread
+            thread = Thread(
+                target=wrapped_target,
+                name=task_name,
+                daemon=True,
+            )
+            self._threads[task_name] = thread
+            thread.start()
+            return thread
+
+    def _stop_threads(self, timeout: float | None = 0.1) -> None:
+        with self._threads_lock:
+            for thread in self._threads.values():
+                thread.join(timeout=timeout)
+            self._threads.clear()
+
+    def _cleanup_threads(self) -> None:
+        """Clean up finished threads and optionally wait for running ones.
+
+        Args:
+            timeout: Maximum time to wait for threads to finish (None to wait forever).
+        """
+        with self._threads_lock:
+            if not self._threads:
+                return
+
+            # Clean up finished threads
+            completed_threads = [
+                name for name, threads in self._threads.items() if not threads.is_alive()]
+
+            for name in completed_threads:
+                self._threads[name].join(timeout=0.1)
+                del self._threads[name]
 
     def connect(self, retry: bool = False, wait: bool = True):
         """Connect to the event dispatcher broker.
@@ -507,33 +644,70 @@ class Dispatcher:
             raise RuntimeError("Already running")
         self._running.set()
         if block:
-            return self._master_loop()
+            self._master_loop()
         else:
             self.start_background_task(
                 target=self._master_loop, task_name="dispatcher-main_loop")
 
     def start(self, retry: bool = False, block: bool = True) -> None:
         """Start to dispatch and receive events."""
+        self.logger.info("Starting dispatcher...")
         def wrap():
             try:
-                self.connect(retry=retry, wait=True)
+                if not self.connected:
+                    self.connect(retry=retry, wait=True)
                 self.run(block=True)
             except StopEvent:
                 self.logger.info("Caught a stop event")
+
         if block:
             wrap()
         else:
             self.start_background_task(target=wrap, task_name="dispatcher-main_loop")
 
     def stop(self) -> None:
-        """Stop to dispatch events."""
-        self.emit(
-            STOP_SIGNAL, room=str(self.host_uid), namespace=self.namespace,
-            ttl=15)
-        self._handle_stop_signal()
+        """Stop the dispatcher and clean up resources."""
+        if not self.running:
+            raise RuntimeError("Not running")
+
+        self.logger.info("Stopping dispatcher...")
+
+        # Set shutdown flag to prevent new tasks
+        self._shutdown_event.set()
+
+        try:
+            # Send stop signal to all rooms
+            self.emit(
+                STOP_SIGNAL,
+                to=self.host_uid,
+                namespace=self.namespace,
+                ttl=15,
+            )
+
+            # Handle broker disconnect, will clean up threads
+            self._handle_stop_signal()
+
+            # Clear all handlers and sessions
+            with self._event_handlers_lock:
+                self.event_handlers.clear()
+                self.handlers.clear()
+
+            with self._sessions_lock:
+                self._sessions.clear()
+
+            self.logger.info("Dispatcher stopped successfully")
+
+        except Exception as e:
+            self.logger.error(f"Error during shutdown: {e}", exc_info=True)
+        finally:
+            # Ensure all flags are cleared
+            self._running.clear()
+            self._connected.clear()
+            self._reconnecting.clear()
+            self._shutdown_event.clear()
 
 
-class AsyncDispatcher(Dispatcher):
+class AsyncDispatcher(BaseDispatcher):
     asyncio_based = True
 
     def __init__(
@@ -542,11 +716,23 @@ class AsyncDispatcher(Dispatcher):
             parent_logger: logging.Logger = None,
             reconnection: bool = True,
     ) -> None:
+        """Base class for a python-socketio inspired async event dispatcher.
+
+        :param namespace: The namespace events will be sent from and to.
+        :param parent_logger: A logging.Logger instance. The dispatcher logger
+                              will be set to 'parent_logger.namespace'.
+        :param reconnection: Whether to attempt reconnection on connection loss.
+        """
         super().__init__(namespace, parent_logger, reconnection)
+
+        # State
         self._running = asyncio.Event()
         self._connected = asyncio.Event()
         self._reconnecting = asyncio.Event()
-        self._tasks: dict[str, Task] | None = {}
+        self._shutdown_event = asyncio.Event()
+
+        # Task management
+        self._tasks: dict[str, Task] = {}
 
     async def _broker_reachable(self) -> bool:
         """Check if it is possible to connect to the broker."""
@@ -585,22 +771,15 @@ class AsyncDispatcher(Dispatcher):
 
     async def _handle_stop_signal(self, *args, **kwargs) -> None:
         await self._handle_broker_disconnect()
+        self._shutdown_event.set()
         self._running.clear()
         self._connected.clear()
         self._reconnecting.clear()
-        for task in [*self._tasks.values()]:
-            try:
-                task.cancel()
-            except RuntimeError:
-                pass
+        await self._stop_tasks()
 
     # Events triggering
-    async def _trigger_connect_event(self) -> None:
-        return await self._trigger_event(
-            "connect", "sid", {"REMOTE_ADDR": self.namespace})
-
-    async def _trigger_disconnect_event(self) -> None:
-        return await self._trigger_event("disconnect", "sid")
+    def _get_event_handlers(self) -> set[EventHandler]:
+        return self.event_handlers
 
     async def _trigger_event(
             self,
@@ -608,34 +787,61 @@ class AsyncDispatcher(Dispatcher):
             sid: UUID,
             *args,
     ) -> None:
+        """Trigger an event with the given arguments.
+
+        Args:
+            event: The name of the event to trigger.
+            sid: The session ID of the sender.
+            *args: Arguments to pass to the event handler.
+
+        Returns:
+            The result of the event handler, or None if the event was not handled.
+
+        Raises:
+            StopEvent: If the event handler raises StopEvent.
+        """
+        if event == STOP_SIGNAL:
+            raise StopEvent("Received stop signal")
+
         try:
-            if event == STOP_SIGNAL:
-                raise StopEvent
+            event_handler = self._get_event_handler(event)
+            signature = inspect.signature(event_handler)
+
+            # Check if the handler expects a 'sid' parameter
+            need_sid = "sid" in signature.parameters
+
+            # Prepare arguments
+            handler_args = (sid, *args) if need_sid else args
+
+            # Call the handler (supports both sync and async handlers)
+            if asyncio.iscoroutinefunction(event_handler):
+                try:
+                    await event_handler(*handler_args)
+                except asyncio.CancelledError:
+                    # Don't log cancelled tasks as errors
+                    raise
             else:
-                event_handler = self._get_event_handler(event)
-                signature = inspect.signature(event_handler)
-                need_sid = "sid" in signature.parameters
-                if asyncio.iscoroutinefunction(event_handler) is True:
-                    try:
-                        if need_sid:
-                            return await event_handler(sid, *args)
-                        return await event_handler(*args)
-                    except asyncio.CancelledError:
-                        return None
-                else:
-                    if need_sid:
-                        return event_handler(sid, *args)
-                    return event_handler(*args)
-        except StopEvent:
-            raise StopEvent
-        except UnknownEvent:
+                # Might be blocking, the user needs to handle this case
+                event_handler(*handler_args)
+
+        except UnknownEvent as e:
             if event not in {"connect", "disconnect"}:
-                self.logger.warning(f"No event '{event}' configured")
+                self.logger.warning(f"No handler for event '{event}': {e}")
+
+        except StopEvent:
+            # Re-raise StopEvent to propagate it up the call stack
+            raise
+
         except Exception as e:
-            self.logger.error(
-                f"Encountered an error while handling event '{event}'. Error "
-                f"msg: `{e.__class__.__name__}: {e}`"
-            )
+            error_msg = f"Error in async event handler for '{event}': {e}"
+            self.logger.error(error_msg, exc_info=True)
+
+    async def _trigger_connect_event(self) -> None:
+        return await self._trigger_event(
+            "connect", "sid", {"REMOTE_ADDR": self.namespace})
+
+    async def _trigger_disconnect_event(self) -> None:
+        return await self._trigger_event("disconnect", "sid")
 
     # Tasks running once `run()` is called
     async def _reconnection_loop(self) -> None:
@@ -747,7 +953,7 @@ class AsyncDispatcher(Dispatcher):
     async def disconnect(self, sid: UUID, namespace: str | None = None) -> None:
         pass  # TODO
 
-    def register_event_handler(self, event_handler: AsyncEventHandler) -> None:
+    async def register_event_handler(self, event_handler: AsyncEventHandler) -> None:
         """Register an event handler."""
         if not event_handler.asyncio_based:
             raise RuntimeError(
@@ -755,6 +961,35 @@ class AsyncDispatcher(Dispatcher):
             )
         event_handler._set_dispatcher(self)
         self.event_handlers.add(event_handler)
+
+    def on(self, event: str, handler: Callable = None) -> None:
+        """Register an event handler
+
+        :param event: The event name.
+        :param handler: The method that will be used to handle the event. When
+                        skipped, this method acts as a decorator.
+
+        Example:
+            - As a method
+            def event_handler(sender_uid, data):
+                print(data)
+            dispatcher.on("my_event", handler=event_handler)
+
+            - As a decorator
+            @dispatcher.on("my_event")
+            def event_handler(sender_uid, data):
+                print(data)
+
+            rem: sender_uid will always be the first argument. It can be used
+            to emit an event back to the sender
+        """
+        def set_handler(_handler: Callable):
+            self.handlers[event] = _handler
+            return _handler
+
+        if handler is None:
+            return set_handler
+        set_handler(handler)
 
     async def emit(
             self,
@@ -797,18 +1032,74 @@ class AsyncDispatcher(Dispatcher):
             task_name: str | None = None,
             **kwargs
     ) -> Task:
-        """Override to use another concurrency method"""
+        """Start a background task in an asyncio task.
+
+        Args:
+            target: The target coroutine function to run in the background.
+            *args: Positional arguments to pass to the target function.
+            task_name: Optional name for the task. If not provided, a name will be generated.
+            **kwargs: Keyword arguments to pass to the target function.
+
+        Returns:
+            asyncio.Task: The task object that was created.
+
+        Raises:
+            ValueError: If a task with the same name is already running.
+            RuntimeError: If the dispatcher is not running.
+        """
+        #if not self.running or self._shutdown_event.is_set():
+        #    raise RuntimeError("Cannot start background task: dispatcher is not running")
+
         task_name = task_name or f"dispatcher-{target.__name__}"
-        task = self._tasks.get(task_name)
-        if task:
-            if not task.done():
-                raise ValueError(
-                    f"A background task named {task_name} is already running")
-        t = Task(
-            target(*args),
-            name=task_name)
-        self._tasks[task_name] = t
-        return t
+
+        # Create a wrapper coroutine
+        async def wrapped_target():
+            try:
+                await target(*args, **kwargs)
+            except asyncio.CancelledError:
+                # Task was cancelled, no need to log
+                raise
+            except Exception as e:
+                self.logger.error(
+                    f"Background task '{task_name}' failed: {e}",
+                    exc_info=True
+                )
+            finally:
+                # Clean up the task reference when done
+                if task_name in self._tasks:
+                    del self._tasks[task_name]
+
+        # Clean up completed tasks
+        self._cleanup_tasks()
+
+        # Check if a task with the same name is already running
+        if task_name in self._tasks:
+            raise ValueError(
+                f"A background task named '{task_name}' is already running")
+
+        # Create and store the task
+        task = asyncio.create_task(wrapped_target(), name=task_name)
+        self._tasks[task_name] = task
+        return task
+
+    async def _stop_tasks(self) -> None:
+        for task in self._tasks.values():
+            task.cancel()
+        # Wait for the tasks to be cancelled
+        await asyncio.sleep(0.1)
+        await self._cleanup_tasks()
+
+    async def _cleanup_tasks(self) -> None:
+        """Clean up completed tasks from the tasks dictionary."""
+        if not self._tasks:
+            return
+
+        completed_tasks = [
+            name for name, task in self._tasks.items()
+            if task.done() or task.cancelled()
+        ]
+        for name in completed_tasks:
+            del self._tasks[name]
 
     async def connect(self, retry: bool = False, wait: bool = True):
         """Connect to the event dispatcher broker.
@@ -850,9 +1141,11 @@ class AsyncDispatcher(Dispatcher):
 
     async def start(self, retry: bool = False, block: bool = True) -> None:
         """Start to dispatch and receive events."""
+        self.logger.info("Starting dispatcher...")
         async def wrap():
             try:
-                await self.connect(retry=retry, wait=True)
+                if not self.connected:
+                    await self.connect(retry=retry, wait=True)
                 await self.run(block=True)
             except StopEvent:
                 self.logger.info("Caught a stop event")
@@ -863,8 +1156,40 @@ class AsyncDispatcher(Dispatcher):
             self.start_background_task(target=wrap, task_name="dispatcher-main_loop")
 
     async def stop(self) -> None:
-        """Stop to dispatch events."""
-        await self.emit(
-            STOP_SIGNAL, room=str(self.host_uid), namespace=self.namespace,
-            ttl=15)
-        await self._handle_stop_signal()
+        """Stop the dispatcher and clean up resources."""
+        if not self.running:
+            raise RuntimeError("Not running")
+
+        self.logger.info("Stopping dispatcher...")
+
+        # Set shutdown flag to prevent new tasks
+        self._shutdown_event.set()
+
+        try:
+            # Send stop signal to all rooms
+            await self.emit(
+                STOP_SIGNAL,
+                to=self.host_uid,
+                namespace=self.namespace,
+                ttl=15,
+            )
+
+            # Handle broker disconnect, will clean up threads
+            await self._handle_stop_signal()
+
+            # Clear all handlers and sessions
+            self.event_handlers.clear()
+            self.handlers.clear()
+
+            self._sessions.clear()
+
+            self.logger.info("Dispatcher stopped successfully")
+
+        except Exception as e:
+            self.logger.error(f"Error during shutdown: {e}", exc_info=True)
+        finally:
+            # Ensure all flags are cleared
+            self._running.clear()
+            self._connected.clear()
+            self._reconnecting.clear()
+            self._shutdown_event.clear()
