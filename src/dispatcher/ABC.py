@@ -378,7 +378,7 @@ class Dispatcher(BaseDispatcher):
                     event: str = message["event"]
                     self.logger.debug(f"Received event '{event}'")
                     room: str = message["room"]
-                    if room in self.rooms:
+                    if room is None or room in self.rooms:
                         sid: uuid = message["host_uid"]
                         context.sid = sid
                         data: DataType = message["data"]
@@ -880,7 +880,7 @@ class AsyncDispatcher(BaseDispatcher):
                     event: str = message["event"]
                     self.logger.debug(f"Received event '{event}'")
                     room: str = message["room"]
-                    if room in self.rooms:
+                    if room is None or room in self.rooms:
                         sid: UUID = message["host_uid"]
                         context.sid = sid
                         data: DataType = message["data"]
