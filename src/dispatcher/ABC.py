@@ -7,7 +7,7 @@ import inspect
 import logging
 from threading import Event, RLock, Thread
 import time
-from typing import AsyncIterator, Iterator, TypedDict
+from typing import AsyncIterator, Hashable, Iterator, TypedDict
 import uuid
 from uuid import UUID
 
@@ -429,11 +429,11 @@ class Dispatcher(BaseDispatcher):
         """
         pass
 
-    def session(self, identifier: str):
+    def session(self, identifier: Hashable):
         class _session_ctx_manager:
             def __init__(self, dispatcher, identifier):
                 self.dispatcher: Dispatcher = dispatcher
-                self.identifier: str = identifier
+                self.identifier: Hashable = identifier
                 self.session: dict | None = None
 
             def __enter__(self):
@@ -928,11 +928,11 @@ class AsyncDispatcher(BaseDispatcher):
         """
         pass
 
-    def session(self, identifier: str):
+    def session(self, identifier: Hashable):
         class _session_ctx_manager:
             def __init__(self, dispatcher, identifier):
                 self.dispatcher: Dispatcher = dispatcher
-                self.identifier: str = identifier
+                self.identifier: Hashable = identifier
                 self.session: dict | None = None
 
             async def __aenter__(self):
