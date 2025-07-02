@@ -196,6 +196,25 @@ class TestDispatcher:
         # Verify handler was called with correct arguments
         mock_handler.assert_called_once_with(test_data)
 
+        # Reset mock
+        mock_handler.reset_mock()
+
+        # Trigger nonexistent event
+        with patch.object(dispatcher.logger, "warning") as warning_logger:
+            dispatcher._trigger_event("nonexistent_event", dispatcher.host_uid, test_data)
+            # Verify logger.warning was called with correct arguments
+            warning_logger.assert_called_once_with(
+                "No handler for event 'nonexistent_event': No handler found for event 'nonexistent_event'")
+
+        # Set a default handler
+        dispatcher.fallback = mock_handler
+
+        # Trigger nonexistent event
+        dispatcher._trigger_event("nonexistent_event", dispatcher.host_uid, test_data)
+
+        # Verify default handler was called with correct arguments
+        mock_handler.assert_called_once_with(test_data)
+
     def test_background_tasks(self):
         """Test background tasks."""
         called = False
@@ -278,7 +297,7 @@ class TestAsyncDispatcher:
             assert dispatcher.connected is False
             assert dispatcher.running is False
 
-    async def test_async_event_handling(self):
+    async def test_event_handling(self):
         """Test async event handler registration and triggering."""
         test_data = {"key": "test_value"}
         dispatcher = AsyncDispatcher()
@@ -306,6 +325,25 @@ class TestAsyncDispatcher:
 
         await dispatcher._trigger_event(async_test_event, dispatcher.host_uid, test_data)
         async_mock_handler.assert_awaited_once_with(test_data)
+
+        # Reset mock
+        mock_handler.reset_mock()
+
+        # Trigger nonexistent event
+        with patch.object(dispatcher.logger, "warning") as warning_logger:
+            await dispatcher._trigger_event("nonexistent_event", dispatcher.host_uid, test_data)
+            # Verify logger.warning was called with correct arguments
+            warning_logger.assert_called_once_with(
+                "No handler for event 'nonexistent_event': No handler found for event 'nonexistent_event'")
+
+        # Set a default handler
+        dispatcher.fallback = mock_handler
+
+        # Trigger nonexistent event
+        await dispatcher._trigger_event("nonexistent_event", dispatcher.host_uid, test_data)
+
+        # Verify default handler was called with correct arguments
+        mock_handler.assert_called_once_with(test_data)
 
     async def test_background_tasks(self):
         """Test background tasks."""
