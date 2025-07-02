@@ -1025,7 +1025,7 @@ class AsyncDispatcher(BaseDispatcher):
         except ConnectionError:
             return False
 
-    def start_background_task(
+    async def start_background_task(
             self,
             target: Callable,
             *args,
@@ -1070,7 +1070,7 @@ class AsyncDispatcher(BaseDispatcher):
                     del self._tasks[task_name]
 
         # Clean up completed tasks
-        self._cleanup_tasks()
+        await self._cleanup_tasks()
 
         # Check if a task with the same name is already running
         if task_name in self._tasks:
@@ -1117,7 +1117,7 @@ class AsyncDispatcher(BaseDispatcher):
                 if wait:
                     await self._reconnection_loop()
                 else:
-                    self.start_background_task(target=self._reconnection_loop)
+                    await self.start_background_task(target=self._reconnection_loop)
             else:
                 raise ConnectionError("Cannot connect to the broker")
 
@@ -1136,7 +1136,7 @@ class AsyncDispatcher(BaseDispatcher):
         if block:
             await self._master_loop()
         else:
-            self.start_background_task(
+            await self.start_background_task(
                 target=self._master_loop, task_name="dispatcher-main_loop")
 
     async def start(self, retry: bool = False, block: bool = True) -> None:
@@ -1153,7 +1153,7 @@ class AsyncDispatcher(BaseDispatcher):
         if block:
             await wrap()
         else:
-            self.start_background_task(target=wrap, task_name="dispatcher-main_loop")
+            await self.start_background_task(target=wrap, task_name="dispatcher-main_loop")
 
     async def stop(self) -> None:
         """Stop the dispatcher and clean up resources."""
