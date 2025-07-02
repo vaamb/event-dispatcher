@@ -7,7 +7,7 @@ import inspect
 import logging
 from threading import Event, RLock, Thread
 import time
-from typing import AsyncIterator, Iterator, TypedDict
+from typing import AsyncIterator, Hashable, Iterator, TypedDict
 import uuid
 from uuid import UUID
 
@@ -429,24 +429,21 @@ class Dispatcher(BaseDispatcher):
         """
         pass
 
-    def session(self, sid: UUID | str):
+    def session(self, identifier: Hashable):
         class _session_ctx_manager:
-            def __init__(self, dispatcher, sid_):
+            def __init__(self, dispatcher, identifier):
                 self.dispatcher: Dispatcher = dispatcher
-                self.sid: UUID = sid_
+                self.identifier: Hashable = identifier
                 self.session: dict | None = None
 
             def __enter__(self):
-                self.session = self.dispatcher._sessions.get(sid, {})
+                self.session = self.dispatcher._sessions.get(self.identifier, {})
                 return self.session
 
             def __exit__(self, *args):
-                self.dispatcher._sessions[sid] = self.session
+                self.dispatcher._sessions[self.identifier] = self.session
 
-        if isinstance(sid, str):
-            sid = UUID(sid)
-
-        return _session_ctx_manager(self, sid)
+        return _session_ctx_manager(self, identifier)
 
     def disconnect(self, sid: UUID, namespace: str | None = None) -> None:
         pass  # TODO
@@ -931,24 +928,21 @@ class AsyncDispatcher(BaseDispatcher):
         """
         pass
 
-    def session(self, sid: UUID | str):
+    def session(self, identifier: Hashable):
         class _session_ctx_manager:
-            def __init__(self, dispatcher, sid_):
+            def __init__(self, dispatcher, identifier):
                 self.dispatcher: Dispatcher = dispatcher
-                self.sid: UUID = sid_
+                self.identifier: Hashable = identifier
                 self.session: dict | None = None
 
             async def __aenter__(self):
-                self.session = self.dispatcher._sessions.get(sid, {})
+                self.session = self.dispatcher._sessions.get(self.identifier, {})
                 return self.session
 
             async def __aexit__(self, *args):
-                self.dispatcher._sessions[sid] = self.session
+                self.dispatcher._sessions[self.identifier] = self.session
 
-        if isinstance(sid, str):
-            sid = UUID(sid)
-
-        return _session_ctx_manager(self, sid)
+        return _session_ctx_manager(self, identifier)
 
     async def disconnect(self, sid: UUID, namespace: str | None = None) -> None:
         pass  # TODO
