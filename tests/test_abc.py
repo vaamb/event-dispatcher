@@ -116,6 +116,18 @@ class TestDispatcher:
         assert not dispatcher.connected
         assert not dispatcher.reconnecting
 
+    def test_session(self):
+        dispatcher = Dispatcher()
+        with dispatcher.session("session_1") as session:
+            assert session == {}
+            session["test"] = True
+
+        with dispatcher.session("session_2") as session:
+            assert session == {}
+
+        with dispatcher.session("session_1") as session:
+            assert session["test"] is True
+
     def test_emit(self):
         """Test emitting an event."""
         dispatcher = Dispatcher()
@@ -210,6 +222,18 @@ class TestAsyncDispatcher:
         assert isinstance(dispatcher._running, asyncio.Event)
         assert isinstance(dispatcher._connected, asyncio.Event)
         assert isinstance(dispatcher._reconnecting, asyncio.Event)
+
+    async def test_session(self):
+        dispatcher = AsyncDispatcher()
+        async with dispatcher.session("session_1") as session:
+            assert session == {}
+            session["test"] = True
+
+        async with dispatcher.session("session_2") as session:
+            assert session == {}
+
+        async with dispatcher.session("session_1") as session:
+            assert session["test"] is True
 
     async def test_emit(self):
         """Test async emit functionality."""
