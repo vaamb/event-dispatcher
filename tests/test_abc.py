@@ -293,7 +293,7 @@ class TestAsyncDispatcher:
             called = True
 
         dispatcher = AsyncDispatcher()
-        dispatcher.start_background_task(call)
+        await dispatcher.start_background_task(call)
 
         await asyncio.sleep(0.2)
 
