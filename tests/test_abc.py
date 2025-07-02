@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import time
 from unittest.mock import AsyncMock, Mock, patch
 import uuid
 
@@ -183,6 +184,22 @@ class TestDispatcher:
         # Verify handler was called with correct arguments
         mock_handler.assert_called_once_with(test_data)
 
+    def test_background_tasks(self):
+        """Test background tasks."""
+        called = False
+
+        def call():
+            nonlocal called
+            time.sleep(0.1)
+            called = True
+
+        dispatcher = Dispatcher()
+        dispatcher.start_background_task(call)
+
+        time.sleep(0.2)
+
+        assert called
+
 
 @pytest.mark.asyncio
 class TestAsyncDispatcher:
@@ -265,3 +282,19 @@ class TestAsyncDispatcher:
 
         await dispatcher._trigger_event(async_test_event, dispatcher.host_uid, test_data)
         async_mock_handler.assert_awaited_once_with(test_data)
+
+    async def test_background_tasks(self):
+        """Test background tasks."""
+        called = False
+
+        async def call():
+            nonlocal called
+            await asyncio.sleep(0.1)
+            called = True
+
+        dispatcher = AsyncDispatcher()
+        dispatcher.start_background_task(call)
+
+        await asyncio.sleep(0.2)
+
+        assert called
