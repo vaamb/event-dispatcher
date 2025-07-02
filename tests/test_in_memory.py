@@ -160,6 +160,82 @@ class TestInMemoryDispatcher:
         finally:
             dispatcher.stop()
 
+    def test_rooms(self):
+        """Test adding and removing rooms."""
+        counter1 = 0
+        counter2 = 0
+
+        dispatcher1 = InMemoryDispatcher()
+        dispatcher2 = InMemoryDispatcher()
+
+        @dispatcher1.on(TEST_EVENT)
+        def handler1(sid, data):
+            nonlocal counter1
+            counter1 += 1
+
+        @dispatcher2.on(TEST_EVENT)
+        def handler2(sid, data):
+            nonlocal counter2
+            counter2 += 1
+
+        dispatcher1.start(block=False)
+        dispatcher2.start(block=False)
+
+        # Dispatcher enter a room with their uuid as soon as they start
+        assert len(dispatcher1.rooms) == 1
+        assert len(dispatcher2.rooms) == 1
+
+        # Send events to all dispatchers
+        dispatcher1.emit(TEST_EVENT, {"test": "data1"})
+        time.sleep(0.1)  # Give them some time to process
+        assert counter1 == 1
+        assert len(dispatcher1.rooms) == 1
+        assert counter2 == 1
+        assert len(dispatcher2.rooms) == 1
+
+        # Send events to empty room1
+        dispatcher1.emit(TEST_EVENT, {"test": "data2"}, room="room1")
+        time.sleep(0.1)  # Give them some time to process
+        assert counter1 == 1
+        assert len(dispatcher1.rooms) == 1
+        assert counter2 == 1
+        assert len(dispatcher2.rooms) == 1
+
+        # Dispatcher1 joins room1
+        dispatcher1.enter_room("room1")
+        dispatcher1.emit(TEST_EVENT, {"test": "data2"}, room="room1")
+        time.sleep(0.1)  # Give them some time to process
+        assert counter1 == 2
+        assert len(dispatcher1.rooms) == 2
+        assert counter2 == 1
+        assert len(dispatcher2.rooms) == 1
+
+        # Both dispatchers enter room2
+        dispatcher1.enter_room("room2")
+        dispatcher2.enter_room("room2")
+        dispatcher1.emit(TEST_EVENT, {"test": "data3"}, room="room2")
+        time.sleep(0.1)  # Give them some time to process
+        assert counter1 == 3
+        assert len(dispatcher1.rooms) == 3
+        assert counter2 == 2
+        assert len(dispatcher2.rooms) == 2
+
+        # Dispatcher1 leaves room 1
+        dispatcher1.leave_room("room1")
+        dispatcher1.emit(TEST_EVENT, {"test": "data4"}, room="room1")
+        time.sleep(0.1)  # Give them some time to process
+        assert counter1 == 3
+        assert len(dispatcher1.rooms) == 2
+        assert counter2 == 2
+        assert len(dispatcher2.rooms) == 2
+
+        # Send to dispatcher2 only
+        dispatcher1.emit(TEST_EVENT, {"test": "data5"}, to=dispatcher2.host_uid)
+        time.sleep(0.2)  # Give them some time to process
+        assert counter1 == 3
+        assert len(dispatcher1.rooms) == 2
+        assert counter2 == 3
+        assert len(dispatcher2.rooms) == 2
 
 @pytest.mark.asyncio
 class TestAsyncInMemoryDispatcher:
@@ -307,3 +383,82 @@ class TestAsyncInMemoryDispatcher:
 
         finally:
             await dispatcher.stop()
+
+    async def test_rooms(self):
+        """Test adding and removing rooms."""
+        counter1 = 0
+        counter2 = 0
+
+        dispatcher1 = AsyncInMemoryDispatcher()
+        dispatcher2 = AsyncInMemoryDispatcher()
+
+        @dispatcher1.on(TEST_EVENT)
+        def handler1(sid, data):
+            nonlocal counter1
+            counter1 += 1
+
+        @dispatcher2.on(TEST_EVENT)
+        async def handler2(sid, data):
+            nonlocal counter2
+            counter2 += 1
+
+        await dispatcher1.start(block=False)
+        await dispatcher2.start(block=False)
+        # Give it some time to start and subscribe to the broker
+        await asyncio.sleep(0.1)
+
+        # Dispatcher enter a room with their uuid as soon as they start
+        assert len(dispatcher1.rooms) == 1
+        assert len(dispatcher2.rooms) == 1
+
+        # Send events to all dispatchers
+        await dispatcher1.emit(TEST_EVENT, {"test": "data1"})
+        await asyncio.sleep(0.1)  # Give them some time to process
+        assert counter1 == 1
+        assert len(dispatcher1.rooms) == 1
+        assert counter2 == 1
+        assert len(dispatcher2.rooms) == 1
+
+        # Send events to empty room1
+        await dispatcher1.emit(TEST_EVENT, {"test": "data2"}, room="room1")
+        await asyncio.sleep(0.1)  # Give them some time to process
+        assert counter1 == 1
+        assert len(dispatcher1.rooms) == 1
+        assert counter2 == 1
+        assert len(dispatcher2.rooms) == 1
+
+        # Dispatcher1 joins room1
+        dispatcher1.enter_room("room1")
+        await dispatcher1.emit(TEST_EVENT, {"test": "data2"}, room="room1")
+        await asyncio.sleep(0.1)  # Give them some time to process
+        assert counter1 == 2
+        assert len(dispatcher1.rooms) == 2
+        assert counter2 == 1
+        assert len(dispatcher2.rooms) == 1
+
+        # Both dispatchers enter room2
+        dispatcher1.enter_room("room2")
+        dispatcher2.enter_room("room2")
+        await dispatcher1.emit(TEST_EVENT, {"test": "data3"}, room="room2")
+        await asyncio.sleep(0.1)  # Give them some time to process
+        assert counter1 == 3
+        assert len(dispatcher1.rooms) == 3
+        assert counter2 == 2
+        assert len(dispatcher2.rooms) == 2
+
+        # Dispatcher1 leaves room 1
+        dispatcher1.leave_room("room1")
+        await dispatcher1.emit(TEST_EVENT, {"test": "data4"}, room="room1")
+        await asyncio.sleep(0.1)  # Give them some time to process
+        assert counter1 == 3
+        assert len(dispatcher1.rooms) == 2
+        assert counter2 == 2
+        assert len(dispatcher2.rooms) == 2
+
+        # Send to dispatcher2 only
+        await dispatcher1.emit(TEST_EVENT, {"test": "data5"}, room=dispatcher2.host_uid)
+        await asyncio.sleep(0.2)  # Give them some time to process
+        assert counter1 == 3
+        assert len(dispatcher1.rooms) == 2
+        assert counter2 == 3
+        assert len(dispatcher2.rooms) == 2
