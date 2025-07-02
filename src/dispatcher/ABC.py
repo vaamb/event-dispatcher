@@ -198,6 +198,8 @@ class BaseDispatcher:
         """
         self._fallback = fct
 
+    fallback_handler = fallback
+
     # Rooms management
     def enter_room(self, room: str) -> None:
         self.rooms.add(room)
