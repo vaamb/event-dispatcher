@@ -1,3 +1,5 @@
+__version__ = "0.5.0"
+
 from .ABC import AsyncDispatcher, context, Dispatcher, STOP_SIGNAL
 from .async_amqp_dispatcher import AsyncAMQPDispatcher
 from .async_in_memory_dispatcher import AsyncInMemoryDispatcher
