@@ -101,7 +101,7 @@ class TestInMemoryDispatcher:
 
         try:
             # Send events to both namespaces
-            dispatcher1.emit(TEST_EVENT, {"test": "data1"})
+            dispatcher1.emit(TEST_EVENT, None)
             dispatcher2.emit(TEST_EVENT, {"test": "data2"})
             dispatcher3.emit(TEST_EVENT, {"test": "data3"})
 
@@ -113,7 +113,7 @@ class TestInMemoryDispatcher:
             assert len(events2) == 1
 
             assert events1[0][0] == dispatcher1.host_uid
-            assert events1[0][1]["test"] == "data1"
+            assert events1[0][1] is None
             assert events1[1][0] == dispatcher3.host_uid
             assert events1[1][1]["test"] == "data3"
             assert events2[0][0] == dispatcher2.host_uid
@@ -325,7 +325,7 @@ class TestAsyncInMemoryDispatcher:
 
         try:
             # Send events to both namespaces
-            await dispatcher1.emit(TEST_EVENT, {"test": "data1"})
+            await dispatcher1.emit(TEST_EVENT, None)
             await dispatcher2.emit(TEST_EVENT, {"test": "data2"})
             await dispatcher3.emit(TEST_EVENT, {"test": "data3"})
 
@@ -337,7 +337,7 @@ class TestAsyncInMemoryDispatcher:
             assert len(events2) == 1
 
             assert events1[0][0] == dispatcher1.host_uid
-            assert events1[0][1]["test"] == "data1"
+            assert events1[0][1] is None
             assert events1[1][0] == dispatcher3.host_uid
             assert events1[1][1]["test"] == "data3"
             assert events2[0][0] == dispatcher2.host_uid

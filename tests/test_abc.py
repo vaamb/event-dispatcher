@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 
-from dispatcher.ABC import BaseDispatcher, Dispatcher, AsyncDispatcher
+from dispatcher.ABC import AsyncDispatcher, BaseDispatcher, Dispatcher, empty
 
 
 class TestBaseDispatcher:
@@ -99,10 +99,13 @@ class TestBaseDispatcher:
         """Test conversion of data to list."""
         dispatcher = BaseDispatcher()
 
-        assert dispatcher._data_as_list(None) == []
+        assert dispatcher._data_as_list(None) == [None]
         assert dispatcher._data_as_list("test") == ["test"]
         assert dispatcher._data_as_list((1, 2, 3)) == [1, 2, 3]
         assert dispatcher._data_as_list([1, 2, 3]) == [[1, 2, 3]]
+        assert dispatcher._data_as_list({"key": "value"}) == [{"key": "value"}]
+        assert dispatcher._data_as_list(b"test") == [b"test"]
+        assert dispatcher._data_as_list(empty) == []
 
 
 class TestDispatcher:
