@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 
-from dispatcher.ABC import AsyncDispatcher, BaseDispatcher, Dispatcher, empty
+from dispatcher.ABC import AsyncDispatcher, BaseDispatcher, Dispatcher, EMPTY
 
 
 class TestBaseDispatcher:
@@ -105,7 +105,7 @@ class TestBaseDispatcher:
         assert dispatcher._data_as_list([1, 2, 3]) == [[1, 2, 3]]
         assert dispatcher._data_as_list({"key": "value"}) == [{"key": "value"}]
         assert dispatcher._data_as_list(b"test") == [b"test"]
-        assert dispatcher._data_as_list(empty) == []
+        assert dispatcher._data_as_list(EMPTY) == []
 
 
 class TestDispatcher:
