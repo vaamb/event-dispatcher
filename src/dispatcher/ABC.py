@@ -17,7 +17,14 @@ from .exceptions import StopEvent, UnknownEvent
 from .serializer import Serializer
 
 
-DataType: bytes | bytearray | dict | list | str | tuple | None
+class Empty:
+    """A sentinel class to mark empty payload"""
+    pass
+
+empty = Empty()
+
+
+DataType: bytes | bytearray | dict | list | str | tuple | None | Empty
 
 
 class PayloadDict(TypedDict):
@@ -113,7 +120,7 @@ class BaseDispatcher:
             self,
             event: str,
             room: str | UUID | None = None,
-            data: DataType = None,
+            data: DataType = empty,
     ) -> bytearray:
         if isinstance(room, UUID):
             room = room.hex
@@ -151,7 +158,7 @@ class BaseDispatcher:
     def _data_as_list(self, data: DataType) -> list:
         if isinstance(data, tuple):
             return list(data)
-        if data is None:
+        if data is empty:
             return []
         return [data]
 
@@ -493,7 +500,7 @@ class Dispatcher(BaseDispatcher):
     def emit(
             self,
             event: str,
-            data: DataType = None,
+            data: DataType = empty,
             to:  UUID | None = None,
             room: str | None = None,
             namespace: str | None = None,
@@ -990,7 +997,7 @@ class AsyncDispatcher(BaseDispatcher):
     async def emit(
             self,
             event: str,
-            data: DataType = None,
+            data: DataType = empty,
             to:  UUID | None = None,
             room: str | None = None,
             namespace: str | None = None,
