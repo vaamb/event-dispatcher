@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-import typing as t
 from uuid import UUID
 
+from .ABC import AsyncDispatcher, Dispatcher, EMPTY
 from .exceptions import UnknownEvent
 
 
-if t.TYPE_CHECKING:
-    from .ABC import AsyncDispatcher, Dispatcher
-
-
-data_type: dict | list | str | tuple | None
+DataType: bytes | bytearray | dict | list | str | tuple | None | EMPTY
 
 
 class EventHandler:
@@ -79,7 +75,7 @@ class EventHandler:
     def emit(
             self,
             event: str,
-            data: data_type = None,
+            data: DataType = EMPTY,
             to: UUID | None = None,
             room: str | None = None,
             namespace: str | None = None,
@@ -140,7 +136,7 @@ class AsyncEventHandler(EventHandler):
     async def emit(
             self,
             event: str,
-            data: data_type = None,
+            data: DataType = EMPTY,
             to: UUID | None = None,
             room: str | None = None,
             namespace: str | None = None,

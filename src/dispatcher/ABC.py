@@ -7,24 +7,20 @@ import inspect
 import logging
 from threading import Event, RLock, Thread
 import time
-from typing import AsyncIterator, Hashable, Iterator, TypedDict
+from typing import AsyncIterator, Hashable, Iterator, TYPE_CHECKING, TypedDict
 import uuid
 from uuid import UUID
 
 from .context_var_wrapper import ContextVarWrapper
-from .event_handler import AsyncEventHandler, EventHandler
 from .exceptions import StopEvent, UnknownEvent
 from .serializer import Serializer
 
 
-class Empty:
-    """A sentinel class to mark empty payload"""
-    pass
-
-empty = Empty()
+if TYPE_CHECKING:
+    from .event_handler import AsyncEventHandler, EventHandler
 
 
-DataType: bytes | bytearray | dict | list | str | tuple | None | Empty
+DataType: bytes | bytearray | dict | list | str | tuple | None | EMPTY
 
 
 class PayloadDict(TypedDict):
@@ -34,6 +30,7 @@ class PayloadDict(TypedDict):
     data: dict | list | str | tuple | None
 
 
+EMPTY = "__EMPTY__"
 STOP_SIGNAL = "__STOP__"
 
 context = ContextVarWrapper()
@@ -120,7 +117,7 @@ class BaseDispatcher:
             self,
             event: str,
             room: str | UUID | None = None,
-            data: DataType = empty,
+            data: DataType = EMPTY,
     ) -> bytearray:
         if isinstance(room, UUID):
             room = room.hex
@@ -156,10 +153,10 @@ class BaseDispatcher:
         )
 
     def _data_as_list(self, data: DataType) -> list:
+        if data == EMPTY:
+            return []
         if isinstance(data, tuple):
             return list(data)
-        if data is empty:
-            return []
         return [data]
 
     # Event handling
@@ -500,7 +497,7 @@ class Dispatcher(BaseDispatcher):
     def emit(
             self,
             event: str,
-            data: DataType = empty,
+            data: DataType = EMPTY,
             to:  UUID | None = None,
             room: str | None = None,
             namespace: str | None = None,
@@ -997,7 +994,7 @@ class AsyncDispatcher(BaseDispatcher):
     async def emit(
             self,
             event: str,
-            data: DataType = empty,
+            data: DataType = EMPTY,
             to:  UUID | None = None,
             room: str | None = None,
             namespace: str | None = None,
