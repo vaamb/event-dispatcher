@@ -500,7 +500,7 @@ class Dispatcher(BaseDispatcher):
     def emit(
             self,
             event: str,
-            data: DataType = None,
+            data: DataType = empty,
             to:  UUID | None = None,
             room: str | None = None,
             namespace: str | None = None,
@@ -997,7 +997,7 @@ class AsyncDispatcher(BaseDispatcher):
     async def emit(
             self,
             event: str,
-            data: DataType = None,
+            data: DataType = empty,
             to:  UUID | None = None,
             room: str | None = None,
             namespace: str | None = None,
