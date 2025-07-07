@@ -956,7 +956,7 @@ class AsyncDispatcher(BaseDispatcher):
     async def disconnect(self, sid: UUID, namespace: str | None = None) -> None:
         pass  # TODO
 
-    async def register_event_handler(self, event_handler: AsyncEventHandler) -> None:
+    def register_event_handler(self, event_handler: AsyncEventHandler) -> None:
         """Register an event handler."""
         if not event_handler.asyncio_based:
             raise RuntimeError(
