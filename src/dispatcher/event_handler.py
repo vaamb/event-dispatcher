@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Hashable
 from uuid import UUID
 
 from .ABC import AsyncDispatcher, Dispatcher, EMPTY
@@ -46,9 +47,7 @@ class EventHandler:
     def leave_room(self, room: str) -> None:
         self._dispatcher.leave_room(room)
 
-    def session(self, sid: str | UUID):
-        if isinstance(sid, str):
-            sid = UUID(sid)
+    def session(self, sid: Hashable):
         return self._dispatcher.session(sid)
 
     def disconnect(self, sid: str | UUID) -> None:
