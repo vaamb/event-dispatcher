@@ -41,6 +41,7 @@ class BaseDispatcher:
     _PAYLOAD_SEPARATOR: bytes = b"\x1d\x1d"
     _DATA_OBJECT: bytes = b"\x31"  # 1
     _DATA_BINARY: bytes = b"\x32"  # 2
+    _DATA_EMPTY: bytes = b"\x33"   # 3
 
     serializer = Serializer
 
@@ -107,6 +108,8 @@ class BaseDispatcher:
             rv += self._DATA_BINARY
             rv += data
             return rv
+        elif data is EMPTY:
+            return bytearray(self._DATA_EMPTY)
         else:
             rv = bytearray()
             rv += self._DATA_OBJECT
@@ -137,6 +140,8 @@ class BaseDispatcher:
         data_type = data[:1]
         if data_type == self._DATA_OBJECT:
             return self.serializer.loads(data[1:])
+        elif data_type == self._DATA_EMPTY:
+            return EMPTY
         elif data_type == self._DATA_BINARY:
             return data[1:]
         else:
