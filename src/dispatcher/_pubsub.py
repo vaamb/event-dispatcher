@@ -42,15 +42,21 @@ _async_brokers: dict[str, AsyncBroker] = {}
 
 
 def _get_broker(namespace: str) -> Broker:
-    if namespace not in _brokers:
-        _brokers[namespace] = Broker()
-    return _brokers[namespace]
+    try:
+        return _brokers[namespace]
+    except KeyError:
+        broker = Broker()
+        _brokers[namespace] = broker
+        return broker
 
 
 def _get_async_broker(namespace: str) -> AsyncBroker:
-    if namespace not in _async_brokers:
-        _async_brokers[namespace] = AsyncBroker()
-    return _async_brokers[namespace]
+    try:
+        return _async_brokers[namespace]
+    except KeyError:
+        broker = AsyncBroker()
+        _async_brokers[namespace] = broker
+        return broker
 
 
 class StupidPubSub:
@@ -74,9 +80,12 @@ class StupidPubSub:
         else:
             self.channels.clear()
 
-    def publish(self, channel: str, message: dict | bytes) -> int:
-        payload = {"namespace": channel, "data": message}
-        published = self.broker.push(payload)
+    def publish(self, namespace: str, message: dict | bytes) -> int:
+        if namespace not in _brokers:
+            return 0
+        payload = {"namespace": namespace, "data": message}
+        broker: Broker = _get_broker(namespace)
+        published = broker.push(payload)
         return published
 
     def listen(self, timeout: float | None = None) -> dict | bytes:
@@ -94,9 +103,12 @@ class AsyncPubSub(StupidPubSub):
         self.channels: set[str] = set()
         self.messages = asyncio.Queue()
 
-    async def publish(self, channel: str, message: dict | bytes) -> int:
-        payload = {"namespace": channel, "data": message}
-        published = await self.broker.push(payload)
+    async def publish(self, namespace: str, message: dict | bytes) -> int:
+        if namespace not in _async_brokers:
+            return 0
+        payload = {"namespace": namespace, "data": message}
+        broker: AsyncBroker = _get_async_broker(namespace)
+        published = await broker.push(payload)
         return published
 
     async def listen(self, timeout: float | None = None) -> dict | bytes:
