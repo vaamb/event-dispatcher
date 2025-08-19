@@ -73,7 +73,7 @@ class TestInMemoryDispatcher:
         assert dispatcher.connected is False
         assert dispatcher.running is False
 
-    def test_namespace_isolation(self):
+    def test_listener_namespace_isolation(self):
         """Test that different namespaces don't interfere with each other."""
         events1 = []
         events2 = []
@@ -86,7 +86,7 @@ class TestInMemoryDispatcher:
             events2.append((sid, data))
             #raise StopEvent("Stop after first event")
 
-        # Create two dispatchers with different namespaces
+        # Create three dispatchers with different namespaces
         dispatcher1 = InMemoryDispatcher(namespace="ns1")
         dispatcher2 = InMemoryDispatcher(namespace="ns2")
         dispatcher3 = InMemoryDispatcher(namespace="ns1")
@@ -122,6 +122,31 @@ class TestInMemoryDispatcher:
         finally:
             dispatcher1.stop()
             dispatcher2.stop()
+
+    def test_emitter_cross_namespace(self):
+        event = False
+
+        def handler(sid, data):
+            nonlocal event
+            event = True
+
+        # Create two dispatchers with different namespaces
+        dispatcher1 = InMemoryDispatcher(namespace="ns1")
+        dispatcher2 = InMemoryDispatcher(namespace="ns2")
+
+        dispatcher1.on(TEST_EVENT, handler)
+
+        dispatcher1.start(block=False)
+
+        try:
+            dispatcher2.emit(TEST_EVENT, None, namespace="ns1")
+
+            # Give them some time to process
+            time.sleep(0.2)
+
+            assert event is True
+        finally:
+            dispatcher1.stop()
 
     def test_concurrent_events(self):
         """Test that the dispatcher can handle multiple events concurrently."""
@@ -297,7 +322,7 @@ class TestAsyncInMemoryDispatcher:
         assert dispatcher.connected is False
         assert dispatcher.running is False
 
-    async def test_namespace_isolation(self):
+    async def test_listener_namespace_isolation(self):
         """Test that different namespaces don't interfere with each other."""
         events1 = []
         events2 = []
@@ -346,6 +371,33 @@ class TestAsyncInMemoryDispatcher:
         finally:
             await dispatcher1.stop()
             await dispatcher2.stop()
+
+    async def test_emitter_cross_namespace(self):
+        event = False
+
+        def handler(sid, data):
+            nonlocal event
+            event = True
+
+        # Create two dispatchers with different namespaces
+        dispatcher1 = AsyncInMemoryDispatcher(namespace="ns1")
+        dispatcher2 = AsyncInMemoryDispatcher(namespace="ns2")
+
+        dispatcher1.on(TEST_EVENT, handler)
+
+        await dispatcher1.start(block=False)
+        # Give some time to start and subscribe to the broker
+        await asyncio.sleep(0.1)
+
+        try:
+            await dispatcher2.emit(TEST_EVENT, None, namespace="ns1")
+
+            # Give them some time to process
+            await asyncio.sleep(0.2)
+
+            assert event is True
+        finally:
+            await dispatcher1.stop()
 
     async def test_concurrent_events(self):
         """Test that the dispatcher can handle multiple events concurrently."""
