@@ -24,10 +24,12 @@ class InMemoryDispatcher(Dispatcher):
     def __init__(
             self,
             namespace: str = "event_dispatcher",
-            parent_logger: logging.Logger = None
+            parent_logger: logging.Logger | None = None,
+            reconnection: bool = True,
+            debug: bool = False,
     ) -> None:
         self.pubsub = StupidPubSub(namespace)
-        super().__init__(namespace, parent_logger)
+        super().__init__(namespace, parent_logger, reconnection, debug)
 
     def _broker_reachable(self) -> bool:
         return True

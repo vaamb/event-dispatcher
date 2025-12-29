@@ -22,10 +22,12 @@ class AsyncInMemoryDispatcher(AsyncDispatcher):
     def __init__(
             self,
             namespace: str = "event_dispatcher",
-            parent_logger: logging.Logger = None
+            parent_logger: logging.Logger | None = None,
+            reconnection: bool = True,
+            debug: bool = False,
     ) -> None:
         self.pubsub: AsyncPubSub = AsyncPubSub(namespace)
-        super().__init__(namespace, parent_logger)
+        super().__init__(namespace, parent_logger, reconnection, debug)
 
     async def _broker_reachable(self) -> bool:
         return True
