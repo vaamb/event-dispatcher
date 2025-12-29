@@ -48,7 +48,7 @@ class BaseDispatcher:
     def __init__(
             self,
             namespace: str = "event_dispatcher",
-            parent_logger: logging.Logger = None,
+            parent_logger: logging.Logger | None = None,
             reconnection: bool = True,
             debug: bool = False,
     ) -> None:
@@ -228,6 +228,7 @@ class Dispatcher(BaseDispatcher):
             namespace: str = "event_dispatcher",
             parent_logger: logging.Logger | None = None,
             reconnection: bool = True,
+            debug: bool = False,
     ) -> None:
         """Base class for a python-socketio inspired event dispatcher.
 
@@ -236,7 +237,7 @@ class Dispatcher(BaseDispatcher):
                               will be set to 'parent_logger.namespace'.
         :param reconnection: Whether to attempt reconnection on connection loss.
         """
-        super().__init__(namespace, parent_logger, reconnection)
+        super().__init__(namespace, parent_logger, reconnection, debug)
 
         # Thread management
         self._threads: dict[str, Thread] = {}
@@ -723,8 +724,9 @@ class AsyncDispatcher(BaseDispatcher):
     def __init__(
             self,
             namespace: str = "event_dispatcher",
-            parent_logger: logging.Logger = None,
+            parent_logger: logging.Logger | None = None,
             reconnection: bool = True,
+            debug: bool = False,
     ) -> None:
         """Base class for a python-socketio inspired async event dispatcher.
 
@@ -733,7 +735,7 @@ class AsyncDispatcher(BaseDispatcher):
                               will be set to 'parent_logger.namespace'.
         :param reconnection: Whether to attempt reconnection on connection loss.
         """
-        super().__init__(namespace, parent_logger, reconnection)
+        super().__init__(namespace, parent_logger, reconnection, debug)
 
         # State
         self._running = asyncio.Event()

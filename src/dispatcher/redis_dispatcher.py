@@ -31,12 +31,14 @@ class RedisDispatcher(Dispatcher):
             parent_logger: logging.Logger = None,
             redis_options: dict = None,
             queue_options: dict = None,
+            reconnection: bool = True,
+            debug: bool = False,
     ) -> None:
         if redis is None:
             raise RuntimeError(
                 "Install 'redis' package to use RedisDispatcher"
             )
-        super().__init__(namespace=namespace, parent_logger=parent_logger)
+        super().__init__(namespace, parent_logger, reconnection, debug)
         self.redis_options: dict = redis_options or {}
         self.redis_url: str = url
         self.queue_options: dict = queue_options or {}

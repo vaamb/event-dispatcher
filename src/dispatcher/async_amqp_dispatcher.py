@@ -34,16 +34,18 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
             self,
             namespace: str = "event_dispatcher",
             url: str = "amqp://guest:guest@localhost:5672//",
-            parent_logger: logging.Logger = None,
+            parent_logger: logging.Logger | None = None,
             connection_options: dict = None,
             exchange_options: dict = None,
             queue_options: dict = None,
             publisher_options: dict = None,
+            reconnection: bool = True,
+            debug: bool = False,
     ) -> None:
         if aio_pika is None:
             raise RuntimeError(
                 "Install 'aio_pika' package to use AsyncAMQPDispatcher")
-        super().__init__(namespace=namespace, parent_logger=parent_logger)
+        super().__init__(namespace, parent_logger, reconnection, debug)
         self.url = url
         self.connection_options: dict = connection_options or {}
         self.exchange_options: dict = exchange_options or {}

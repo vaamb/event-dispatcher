@@ -39,11 +39,13 @@ class KombuDispatcher(Dispatcher):
             queue_options: dict = None,
             producer_options: dict = None,
             publisher_options: dict = None,
+            reconnection: bool = True,
+            debug: bool = False,
     ) -> None:
         if kombu is None:
             raise RuntimeError(
                 "Install 'kombu' package to use KombuDispatcher")
-        super(KombuDispatcher, self).__init__(namespace, parent_logger)
+        super().__init__(namespace, parent_logger, reconnection, debug)
         self.url: str = url
         self.exchange_options: dict = exchange_options or {}
         self.queue_options: dict = queue_options or {}
