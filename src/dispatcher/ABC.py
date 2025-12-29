@@ -50,6 +50,7 @@ class BaseDispatcher:
             namespace: str = "event_dispatcher",
             parent_logger: logging.Logger = None,
             reconnection: bool = True,
+            debug: bool = False,
     ) -> None:
         """Base class for a python-socketio inspired event dispatcher.
 
@@ -64,6 +65,7 @@ class BaseDispatcher:
         self.namespace: str = namespace.strip("/")
         self.logger: logging.Logger = logger or logging.getLogger(f"dispatcher.{namespace}")
         self.reconnection: bool = reconnection
+        self._debug: bool = debug
         self.host_uid: UUID = uuid.uuid4()
         self.rooms: set[str] = {self.host_uid.hex}
 
@@ -343,7 +345,7 @@ class Dispatcher(BaseDispatcher):
 
         except Exception as e:
             error_msg = f"Error in event handler for '{event}': {e}"
-            self.logger.error(error_msg, exc_info=True)
+            self.logger.error(error_msg, exc_info=self._debug)
 
     def _trigger_connect_event(self) -> None:
         return self._trigger_event(
@@ -567,7 +569,7 @@ class Dispatcher(BaseDispatcher):
             except Exception as e:
                 self.logger.error(
                     f"Background task '{task_name}' failed: {e}",
-                    exc_info=True
+                    exc_info=self._debug
                 )
             finally:
                 with self._threads_lock:
@@ -706,7 +708,7 @@ class Dispatcher(BaseDispatcher):
             self.logger.info("Dispatcher stopped successfully")
 
         except Exception as e:
-            self.logger.error(f"Error during shutdown: {e}", exc_info=True)
+            self.logger.error(f"Error during shutdown: {e}", exc_info=self._debug)
         finally:
             # Ensure all flags are cleared
             self._running.clear()
@@ -842,7 +844,7 @@ class AsyncDispatcher(BaseDispatcher):
 
         except Exception as e:
             error_msg = f"Error in async event handler for '{event}': {e}"
-            self.logger.error(error_msg, exc_info=True)
+            self.logger.error(error_msg, exc_info=self._debug)
 
     async def _trigger_connect_event(self) -> None:
         return await self._trigger_event(
@@ -1067,7 +1069,7 @@ class AsyncDispatcher(BaseDispatcher):
             except Exception as e:
                 self.logger.error(
                     f"Background task '{task_name}' failed: {e}",
-                    exc_info=True
+                    exc_info=self._debug
                 )
             finally:
                 # Clean up the task reference when done
@@ -1191,7 +1193,7 @@ class AsyncDispatcher(BaseDispatcher):
             self.logger.info("Dispatcher stopped successfully")
 
         except Exception as e:
-            self.logger.error(f"Error during shutdown: {e}", exc_info=True)
+            self.logger.error(f"Error during shutdown: {e}", exc_info=self._debug)
         finally:
             # Ensure all flags are cleared
             self._running.clear()
