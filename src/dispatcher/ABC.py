@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 import asyncio
 from asyncio import Task
 from collections.abc import Callable
@@ -36,7 +37,7 @@ STOP_SIGNAL = "__STOP__"
 context = ContextVarWrapper()
 
 
-class BaseDispatcher:
+class BaseDispatcher(ABC):
     asyncio_based: bool
     _PAYLOAD_SEPARATOR: bytes = b"\x1d\x1d"
     _DATA_OBJECT: bytes = b"\x31"  # 1
@@ -76,10 +77,10 @@ class BaseDispatcher:
         self._sessions: dict = {}
 
         # State
-        self._running: Event | asyncio.Event = Event()
-        self._connected: Event | asyncio.Event = Event()
-        self._reconnecting: Event | asyncio.Event = Event()
-        self._shutdown_event: Event | asyncio.Event = Event()
+        self._running: Event | asyncio.Event
+        self._connected: Event | asyncio.Event
+        self._reconnecting: Event | asyncio.Event
+        self._shutdown_event: Event | asyncio.Event
 
     def __repr__(self):
         return (
@@ -167,8 +168,9 @@ class BaseDispatcher:
         return [data]
 
     # Event handling
+    @abstractmethod
     def _get_event_handlers(self) -> set[EventHandler]:
-        raise NotImplementedError
+        ...
 
     def _get_event_handler(self, event: str) -> Callable:
         """Get the appropriate handler for the given event.
@@ -220,7 +222,7 @@ class BaseDispatcher:
             self.rooms.remove(room)
 
 
-class Dispatcher(BaseDispatcher):
+class Dispatcher(BaseDispatcher, ABC):
     asyncio_based: bool = False
 
     def __init__(
@@ -239,6 +241,11 @@ class Dispatcher(BaseDispatcher):
         """
         super().__init__(namespace, parent_logger, reconnection, debug)
 
+        self._running: Event = Event()
+        self._connected: Event = Event()
+        self._reconnecting: Event = Event()
+        self._shutdown_event: Event = Event()
+
         # Thread management
         self._threads: dict[str, Thread] = {}
         self._threads_lock = RLock()
@@ -252,12 +259,12 @@ class Dispatcher(BaseDispatcher):
         raise AttributeError("AsyncDispatcher do not have threads")
 
     # Methods to implement based on broker used
+    @abstractmethod
     def _broker_reachable(self) -> bool:
         """Check if it is possible to connect to the broker."""
-        raise NotImplementedError(
-            "This method needs to be implemented in a subclass"
-        )
+        ...
 
+    @abstractmethod
     def _publish(
             self,
             namespace: str,
@@ -266,15 +273,12 @@ class Dispatcher(BaseDispatcher):
             timeout: int | float | None = None,
     ) -> None:
         """Publish the payload to the namespace."""
-        raise NotImplementedError(
-            "This method needs to be implemented in a subclass"
-        )
+        ...
 
+    @abstractmethod
     def _listen(self) -> Iterator[bytes]:
         """Get a generator that yields payloads that will be parsed."""
-        raise NotImplementedError(
-            "This method needs to be implemented in a subclass"
-        )
+        ...
 
     # Handling of broker-connection related events
     def _handle_broker_connect(self) -> None:
@@ -718,7 +722,7 @@ class Dispatcher(BaseDispatcher):
             self._shutdown_event.clear()
 
 
-class AsyncDispatcher(BaseDispatcher):
+class AsyncDispatcher(BaseDispatcher, ABC):
     asyncio_based = True
 
     def __init__(
@@ -746,12 +750,12 @@ class AsyncDispatcher(BaseDispatcher):
         # Task management
         self._tasks: dict[str, Task] = {}
 
+    @abstractmethod
     async def _broker_reachable(self) -> bool:
         """Check if it is possible to connect to the broker."""
-        raise NotImplementedError(
-            "This method needs to be implemented in a subclass"
-        )
+        ...
 
+    @abstractmethod
     async def _publish(
             self,
             namespace: str,
@@ -760,15 +764,12 @@ class AsyncDispatcher(BaseDispatcher):
             timeout: int | float | None = None,
     ) -> None:
         """Publish the payload to the namespace."""
-        raise NotImplementedError(
-            "This method needs to be implemented in a subclass"
-        )
+        ...
 
+    @abstractmethod
     async def _listen(self) -> AsyncIterator[bytes]:
         """Get a generator that yields payloads that will be parsed."""
-        raise NotImplementedError(
-            "This method needs to be implemented in a subclass"
-        )
+        ...
 
     async def _handle_broker_connect(self) -> None:
         if not self.connected:

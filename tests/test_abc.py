@@ -1,6 +1,7 @@
 import asyncio
 import sys
 import time
+from unittest import TestCase
 from unittest.mock import AsyncMock, Mock, patch
 import uuid
 
@@ -9,16 +10,37 @@ import pytest
 from dispatcher.ABC import AsyncDispatcher, BaseDispatcher, Dispatcher, EMPTY
 
 
-class TestBaseDispatcher:
+class MockBaseDispatcher(BaseDispatcher):
+    _get_event_handlers = Mock()
+
+
+class MockDispatcher(Dispatcher, MockBaseDispatcher):
+    _broker_reachable = Mock(return_value=True)
+    _publish = Mock()
+    _listen = Mock()
+    disconnect = Mock()
+
+
+class MockAsyncDispatcher(AsyncDispatcher, MockBaseDispatcher):
+    _broker_reachable = AsyncMock(return_value=True)
+    _publish = AsyncMock()
+    _listen = AsyncMock()
+    disconnect = AsyncMock()
+
+
+class TestBaseDispatcher(TestCase):
+    def setUp(self):
+        MockBaseDispatcher._get_event_handlers.reset_mock()
+
     def test_custom_namespace(self):
         """Test initialization with custom namespace."""
-        dispatcher = BaseDispatcher(namespace="test_namespace")
+        dispatcher = MockBaseDispatcher(namespace="test_namespace")
         assert dispatcher.namespace == "test_namespace"
 
 
     def test_encode_decode_data(self):
         """Test encoding and decoding of different data types."""
-        dispatcher = BaseDispatcher()
+        dispatcher = MockBaseDispatcher()
 
         # Test with dict
         test_dict = {"key": "value"}
@@ -75,7 +97,7 @@ class TestBaseDispatcher:
 
     def test_generate_parse_payload(self):
         """Test payload generation and parsing."""
-        dispatcher = BaseDispatcher()
+        dispatcher = MockBaseDispatcher()
         test_event = "test_event"
         test_room = "test_room"
         test_data = {"key": "value"}
@@ -97,7 +119,7 @@ class TestBaseDispatcher:
 
     def test_data_as_list(self):
         """Test conversion of data to list."""
-        dispatcher = BaseDispatcher()
+        dispatcher = MockBaseDispatcher()
 
         assert dispatcher._data_as_list(None) == [None]
         assert dispatcher._data_as_list("test") == ["test"]
@@ -108,10 +130,16 @@ class TestBaseDispatcher:
         assert dispatcher._data_as_list(EMPTY) == []
 
 
-class TestDispatcher:
+class TestDispatcher(TestCase):
+    def setUp(self):
+        MockDispatcher._broker_reachable.reset_mock()
+        MockDispatcher._publish.reset_mock()
+        MockDispatcher._listen.reset_mock()
+        MockDispatcher.disconnect.reset_mock()
+
     def test_initialization(self):
         """Test that Dispatcher initializes with default values."""
-        dispatcher = Dispatcher()
+        dispatcher = MockDispatcher()
         assert dispatcher.namespace == "event_dispatcher"
         assert isinstance(dispatcher.host_uid, uuid.UUID)
         assert dispatcher.host_uid.hex in dispatcher.rooms
@@ -120,7 +148,7 @@ class TestDispatcher:
         assert not dispatcher.reconnecting
 
     def test_session(self):
-        dispatcher = Dispatcher()
+        dispatcher = MockDispatcher()
         with dispatcher.session("session_1") as session:
             assert session == {}
             session["test"] = True
@@ -133,54 +161,47 @@ class TestDispatcher:
 
     def test_emit(self):
         """Test emitting an event."""
-        dispatcher = Dispatcher()
+        dispatcher = MockDispatcher()
         test_event = "test_event"
         test_data = {"key": "value"}
         test_room = "test_room"
         test_to = uuid.uuid4()
 
         # Test emit with room
-        with patch.object(dispatcher, "_publish") as mock_publish:
-            result = dispatcher.emit(test_event, data=test_data, room=test_room)
-            assert result is True
-            mock_publish.assert_called_once()
+        result = dispatcher.emit(test_event, data=test_data, room=test_room)
+        assert result is True
+        dispatcher._publish.assert_called_once()
+        dispatcher._publish.reset_mock()
 
         # Test emit with to
-        with patch.object(dispatcher, "_publish") as mock_publish:
-            result = dispatcher.emit(test_event, data=test_data, to=test_to)
-            assert result is True
-            mock_publish.assert_called_once()
+        result = dispatcher.emit(test_event, data=test_data, to=test_to)
+        assert result is True
+        dispatcher._publish.assert_called_once()
 
     def test_lifecycle(self):
         """Test connect and disconnect flow."""
-        dispatcher = Dispatcher()
+        dispatcher = MockDispatcher()
 
-        with (
-            patch.object(dispatcher, "_broker_reachable", Mock(return_value=True)),
-            patch.object(dispatcher, "_listen"),
-            patch.object(dispatcher, "_publish") as mock_publish,
-        ):
+        # Test connect
+        dispatcher.connect()
+        assert dispatcher.connected is True
 
-            # Test connect
-            dispatcher.connect()
-            assert dispatcher.connected is True
+        # Test running
+        dispatcher.run(block=False)
+        assert dispatcher.running is True
 
-            # Test running
+        with pytest.raises(RuntimeError):
             dispatcher.run(block=False)
-            assert dispatcher.running is True
 
-            with pytest.raises(RuntimeError):
-                dispatcher.run(block=False)
+        # Test disconnect
+        dispatcher.stop()
+        dispatcher._publish.assert_called_once()
 
-            # Test disconnect
+        with pytest.raises(RuntimeError):
             dispatcher.stop()
-            mock_publish.assert_called_once()
 
-            with pytest.raises(RuntimeError):
-                dispatcher.stop()
-
-            assert dispatcher.connected is False
-            assert dispatcher.running is False
+        assert dispatcher.connected is False
+        assert dispatcher.running is False
 
     def test_event_handling(self):
         """Test event handler registration and triggering."""
@@ -188,7 +209,7 @@ class TestDispatcher:
         test_event = "test_event"
         test_data = {"key": "test_value"}
 
-        dispatcher = Dispatcher()
+        dispatcher = MockDispatcher()
 
         # Register event handler
         dispatcher.on(test_event, mock_handler)
@@ -227,7 +248,7 @@ class TestDispatcher:
             time.sleep(0.1)
             called = True
 
-        dispatcher = Dispatcher()
+        dispatcher = MockDispatcher()
         dispatcher.start_background_task(call)
 
         time.sleep(0.2)
@@ -236,17 +257,23 @@ class TestDispatcher:
 
 
 @pytest.mark.asyncio
-class TestAsyncDispatcher:
+class TestAsyncDispatcher(TestCase):
+    def setUp(self):
+        MockAsyncDispatcher._broker_reachable.reset_mock()
+        MockAsyncDispatcher._publish.reset_mock()
+        MockAsyncDispatcher._listen.reset_mock()
+        MockAsyncDispatcher.disconnect.reset_mock()
+
     async def test_initialization(self):
         """Test that AsyncDispatcher initializes with asyncio-based flags."""
-        dispatcher = AsyncDispatcher()
+        dispatcher = MockAsyncDispatcher()
         assert dispatcher.asyncio_based is True
         assert isinstance(dispatcher._running, asyncio.Event)
         assert isinstance(dispatcher._connected, asyncio.Event)
         assert isinstance(dispatcher._reconnecting, asyncio.Event)
 
     async def test_session(self):
-        dispatcher = AsyncDispatcher()
+        dispatcher = MockAsyncDispatcher()
         async with dispatcher.session("session_1") as session:
             assert session == {}
             session["test"] = True
@@ -259,51 +286,45 @@ class TestAsyncDispatcher:
 
     async def test_emit(self):
         """Test async emit functionality."""
-        dispatcher = AsyncDispatcher()
+        dispatcher = MockAsyncDispatcher()
         test_event = "test_async_event"
         test_data = {"key": "async_value"}
 
         # Test async emit
-        with patch('dispatcher.ABC.AsyncDispatcher._publish', AsyncMock()) as mock_publish:
-            result = await dispatcher.emit(test_event, data=test_data)
-            assert result is True
-            mock_publish.assert_awaited_once()
+        result = await dispatcher.emit(test_event, data=test_data)
+        assert result is True
+        dispatcher._publish.assert_awaited_once()
 
     async def test_lifecycle(self):
         """Test async connect and disconnect flow."""
-        dispatcher = AsyncDispatcher()
+        dispatcher = MockAsyncDispatcher()
 
-        with (
-            patch.object(dispatcher, "_broker_reachable", AsyncMock(return_value=True)),
-            patch.object(dispatcher, "_listen"),
-            patch.object(dispatcher, "_publish") as mock_publish,
-        ):
+        # Test connect
+        await dispatcher.connect()
+        assert dispatcher.connected is True
 
-            # Test connect
-            await dispatcher.connect()
-            assert dispatcher.connected is True
+        # Test running
+        await dispatcher.run(block=False)
+        assert dispatcher.running is True
 
-            # Test running
+        with pytest.raises(RuntimeError):
             await dispatcher.run(block=False)
-            assert dispatcher.running is True
 
-            with pytest.raises(RuntimeError):
-                await dispatcher.run(block=False)
+        # Test disconnect
+        await dispatcher.stop()
+        dispatcher._publish.assert_called_once()
+        dispatcher._publish.reset_mock()
 
-            # Test disconnect
+        with pytest.raises(RuntimeError):
             await dispatcher.stop()
-            mock_publish.assert_called_once()
 
-            with pytest.raises(RuntimeError):
-                await dispatcher.stop()
-
-            assert dispatcher.connected is False
-            assert dispatcher.running is False
+        assert dispatcher.connected is False
+        assert dispatcher.running is False
 
     async def test_event_handling(self):
         """Test async event handler registration and triggering."""
         test_data = {"key": "test_value"}
-        dispatcher = AsyncDispatcher()
+        dispatcher = MockAsyncDispatcher()
 
         # Test sync event handler registration and triggering
         mock_handler = Mock()
@@ -357,7 +378,7 @@ class TestAsyncDispatcher:
             await asyncio.sleep(0.1)
             called = True
 
-        dispatcher = AsyncDispatcher()
+        dispatcher = MockAsyncDispatcher()
         await dispatcher.start_background_task(call)
 
         await asyncio.sleep(0.2)
