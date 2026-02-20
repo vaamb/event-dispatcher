@@ -1121,6 +1121,8 @@ class AsyncDispatcher(BaseDispatcher, ABC):
         :param wait: In case the dispatcher tries to reconnect after a failed
                      initial attempt, block until the connection is made.
         """
+        if self.connected:
+            raise RuntimeError("Already connected")
         await self.initialize()
         connected = await self._broker_reachable()
         if connected:
