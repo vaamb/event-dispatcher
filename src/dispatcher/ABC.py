@@ -1099,7 +1099,7 @@ class AsyncDispatcher(BaseDispatcher, ABC):
         for task in self._tasks.values():
             task.cancel()
         # Wait for the tasks to be cancelled
-        await asyncio.sleep(0.1)
+        await asyncio.gather(*self._tasks.values(), return_exceptions=True)
         await self._cleanup_tasks()
 
     async def _cleanup_tasks(self) -> None:
