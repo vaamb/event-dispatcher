@@ -164,7 +164,7 @@ class BaseDispatcher(ABC):
         )
 
     def _data_as_list(self, data: DataType) -> list:
-        if data == EMPTY:
+        if data is EMPTY:
             return []
         if isinstance(data, tuple):
             return list(data)
@@ -403,10 +403,10 @@ class Dispatcher(BaseDispatcher, ABC):
                         sid: UUID = message["host_uid"]
                         context.sid = sid
                         data: DataType = message["data"]
-                        data: list = self._data_as_list(data)
+                        args: list = self._data_as_list(data)
                         # User-defined functions should not crash the whole listening loop
                         try:
-                            self._trigger_event(event, sid, *data)
+                            self._trigger_event(event, sid, *args)
                         except StopEvent:
                             self.emit(
                                 STOP_SIGNAL, room=room, namespace=self.namespace,
@@ -900,10 +900,10 @@ class AsyncDispatcher(BaseDispatcher, ABC):
                         sid: UUID = message["host_uid"]
                         context.sid = sid
                         data: DataType = message["data"]
-                        data: list = self._data_as_list(data)
+                        args: list = self._data_as_list(data)
                         # User-defined functions should not crash the whole listening loop
                         try:
-                            await self._trigger_event(event, sid, *data)
+                            await self._trigger_event(event, sid, *args)
                         except StopEvent:
                             await self.emit(
                                 STOP_SIGNAL, room=room, namespace=self.namespace,
@@ -950,7 +950,7 @@ class AsyncDispatcher(BaseDispatcher, ABC):
     def session(self, identifier: Hashable):
         class _session_ctx_manager:
             def __init__(self, dispatcher, identifier):
-                self.dispatcher: Dispatcher = dispatcher
+                self.dispatcher: AsyncDispatcher = dispatcher
                 self.identifier: Hashable = identifier
                 self.session: dict | None = None
 
