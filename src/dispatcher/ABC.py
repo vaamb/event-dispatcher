@@ -479,7 +479,7 @@ class Dispatcher(BaseDispatcher, ABC):
         with self._event_handlers_lock:
             self.event_handlers.add(event_handler)
 
-    def on(self, event: str, handler: Callable = None) -> None:
+    def on(self, event: str, handler: Callable = None) -> Callable | None:
         """Register an event handler
 
         :param event: The event name.
@@ -488,16 +488,16 @@ class Dispatcher(BaseDispatcher, ABC):
 
         Example:
             - As a method
-            def event_handler(sender_uid, data):
+            def event_handler(sid, data):
                 print(data)
             dispatcher.on("my_event", handler=event_handler)
 
             - As a decorator
             @dispatcher.on("my_event")
-            def event_handler(sender_uid, data):
+            def event_handler(sid, data):
                 print(data)
 
-            rem: sender_uid will always be the first argument. It can be used
+            rem: if wanted, sid should always be the first argument. It is useful
             to emit an event back to the sender
         """
         def set_handler(_handler: Callable):
@@ -975,7 +975,7 @@ class AsyncDispatcher(BaseDispatcher, ABC):
         event_handler._set_dispatcher(self)
         self.event_handlers.add(event_handler)
 
-    def on(self, event: str, handler: Callable = None) -> None:
+    def on(self, event: str, handler: Callable = None) -> Callable | None:
         """Register an event handler
 
         :param event: The event name.
@@ -984,16 +984,16 @@ class AsyncDispatcher(BaseDispatcher, ABC):
 
         Example:
             - As a method
-            def event_handler(sender_uid, data):
+            async def event_handler(sid, data):
                 print(data)
             dispatcher.on("my_event", handler=event_handler)
 
             - As a decorator
             @dispatcher.on("my_event")
-            def event_handler(sender_uid, data):
+            async def event_handler(sid, data):
                 print(data)
 
-            rem: sender_uid will always be the first argument. It can be used
+            rem: if wanted, sid should always be the first argument. It is useful
             to emit an event back to the sender
         """
         def set_handler(_handler: Callable):
