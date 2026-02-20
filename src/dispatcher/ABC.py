@@ -8,7 +8,8 @@ import inspect
 import logging
 from threading import Event, RLock, Thread
 import time
-from typing import AsyncIterator, Hashable, Iterator, TYPE_CHECKING, TypedDict
+from typing import (
+    AsyncIterator, Hashable, Iterator, Literal, TYPE_CHECKING, TypeAlias, TypedDict)
 import uuid
 from uuid import UUID
 
@@ -21,7 +22,8 @@ if TYPE_CHECKING:
     from .event_handler import AsyncEventHandler, EventHandler
 
 
-DataType: bytes | bytearray | dict | list | str | tuple | None | EMPTY
+EmptyType = Literal["__EMPTY__"]
+DataType: TypeAlias = bytes | bytearray | dict | list | str | tuple | None | EmptyType
 
 
 class PayloadDict(TypedDict):
@@ -31,7 +33,7 @@ class PayloadDict(TypedDict):
     data: dict | list | str | tuple | None
 
 
-EMPTY = "__EMPTY__"
+EMPTY: EmptyType = "__EMPTY__"
 STOP_SIGNAL = "__STOP__"
 
 context = ContextVarWrapper()
