@@ -21,12 +21,6 @@ class EventHandler:
         self.namespace = namespace
         self._dispatcher: AsyncDispatcher | Dispatcher | None = None
 
-    def __eq__(self, other) -> bool:
-        return self.__dict__.keys() == other.__dict__.keys()
-
-    def __hash__(self):
-        return hash(tuple(self.__dict__.keys()))
-
     def _set_dispatcher(self, dispatcher: Dispatcher) -> None:
         if dispatcher.asyncio_based:
             raise RuntimeError(
