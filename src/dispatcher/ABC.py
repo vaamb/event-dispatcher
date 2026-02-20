@@ -371,10 +371,10 @@ class Dispatcher(BaseDispatcher, ABC):
         time.sleep(retry_sleep)
         while self.running and self.reconnecting:
             self.logger.info(
-                    f"Attempting to reconnect to the message broker")
+                    "Attempting to reconnect to the message broker")
             connected = self._broker_reachable()
             if connected:
-                self.logger.info(f"Reconnection successful")
+                self.logger.info("Reconnection successful")
                 self._handle_broker_connect()
                 self._reconnecting.clear()
                 # Stop the loop
@@ -868,10 +868,10 @@ class AsyncDispatcher(BaseDispatcher, ABC):
         await asyncio.sleep(retry_sleep)
         while self.running and self.reconnecting:
             self.logger.info(
-                    f"Attempting to reconnect to the message broker")
+                    "Attempting to reconnect to the message broker")
             connected = await self._broker_reachable()
             if connected:
-                self.logger.info(f"Reconnection successful")
+                self.logger.info("Reconnection successful")
                 await self._handle_broker_connect()
                 self._reconnecting.clear()
                 # Stop the loop
