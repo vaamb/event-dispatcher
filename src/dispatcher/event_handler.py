@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Hashable
+import inspect
+from typing import Callable, Hashable
 from uuid import UUID
 
 from .ABC import AsyncDispatcher, DataType, Dispatcher, EMPTY
@@ -20,6 +21,7 @@ class EventHandler:
         namespace = namespace.strip("/")
         self.namespace = namespace
         self._dispatcher: AsyncDispatcher | Dispatcher | None = None
+        self._handlers: dict[str, tuple[Callable, bool] | None] = {}
 
     def _set_dispatcher(self, dispatcher: Dispatcher) -> None:
         if dispatcher.asyncio_based:
@@ -46,21 +48,18 @@ class EventHandler:
             sid = UUID(sid)
         self._dispatcher.disconnect(sid)
 
-    def get_handler(self, event: str):
-        handler = f"on_{event}"
-        if hasattr(self, handler):
-            return getattr(self, handler)
-        return None
-
-    def trigger_event(self, event: str, *args, **kwargs):
-        """Dispatch an event to the correct handler method.
-
-        :param event: The name of the event to handle.
-        """
-        handler = self.get_handler(event)
-        if handler:
-            return handler(*args, **kwargs)
-        raise UnknownEvent
+    def _get_handler(self, event: str) -> tuple[Callable, bool] | None:
+        handler_name = f"on_{event}"
+        if handler_name not in self._handlers:
+            if hasattr(self, handler_name):
+                event_handler = getattr(self, handler_name)
+                # Check if the handler expects a 'sid' parameter
+                signature = inspect.signature(event_handler)
+                need_sid = "sid" in signature.parameters
+                self._handlers[handler_name] = (event_handler, need_sid)
+            else:
+                self._handlers[handler_name] = None
+        return self._handlers[handler_name]
 
     def emit(
             self,
@@ -118,7 +117,7 @@ class AsyncEventHandler(EventHandler):
 
         :param event: The name of the event to handle.
         """
-        handler = self.get_handler(event)
+        handler = self._get_handler(event)
         if handler:
             return await handler(*args, **kwargs)
         raise UnknownEvent
