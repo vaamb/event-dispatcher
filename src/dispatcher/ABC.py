@@ -35,6 +35,7 @@ class PayloadDict(TypedDict):
 
 EMPTY: EmptyType = "__EMPTY__"
 STOP_SIGNAL = "__STOP__"
+EMPTY_UUID = UUID(int=0)
 
 context = ContextVarWrapper()
 
@@ -356,10 +357,10 @@ class Dispatcher(BaseDispatcher, ABC):
 
     def _trigger_connect_event(self) -> None:
         return self._trigger_event(
-            "connect", "sid", {"REMOTE_ADDR": self.namespace})
+            "connect", EMPTY_UUID, {"REMOTE_ADDR": self.namespace})
 
     def _trigger_disconnect_event(self) -> None:
-        return self._trigger_event("disconnect", "sid")
+        return self._trigger_event("disconnect", EMPTY_UUID)
 
     # Loops running once `run()` is called
     def _reconnection_loop(self) -> None:
@@ -399,7 +400,7 @@ class Dispatcher(BaseDispatcher, ABC):
                     self.logger.debug(f"Received event '{event}'")
                     room: str = message["room"]
                     if room is None or room in self.rooms:
-                        sid: uuid = message["host_uid"]
+                        sid: UUID = message["host_uid"]
                         context.sid = sid
                         data: DataType = message["data"]
                         data: list = self._data_as_list(data)
@@ -853,10 +854,10 @@ class AsyncDispatcher(BaseDispatcher, ABC):
 
     async def _trigger_connect_event(self) -> None:
         return await self._trigger_event(
-            "connect", "sid", {"REMOTE_ADDR": self.namespace})
+            "connect", EMPTY_UUID, {"REMOTE_ADDR": self.namespace})
 
     async def _trigger_disconnect_event(self) -> None:
-        return await self._trigger_event("disconnect", "sid")
+        return await self._trigger_event("disconnect", EMPTY_UUID)
 
     # Tasks running once `run()` is called
     async def _reconnection_loop(self) -> None:
