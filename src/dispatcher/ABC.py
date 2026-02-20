@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 import asyncio
 from asyncio import Task
 from collections.abc import Callable
@@ -7,7 +8,8 @@ import inspect
 import logging
 from threading import Event, RLock, Thread
 import time
-from typing import AsyncIterator, Hashable, Iterator, TYPE_CHECKING, TypedDict
+from typing import (
+    AsyncIterator, Hashable, Iterator, Literal, TYPE_CHECKING, TypeAlias, TypedDict)
 import uuid
 from uuid import UUID
 
@@ -20,7 +22,8 @@ if TYPE_CHECKING:
     from .event_handler import AsyncEventHandler, EventHandler
 
 
-DataType: bytes | bytearray | dict | list | str | tuple | None | EMPTY
+EmptyType = Literal["__EMPTY__"]
+DataType: TypeAlias = bytes | bytearray | dict | list | str | tuple | None | EmptyType
 
 
 class PayloadDict(TypedDict):
@@ -30,13 +33,14 @@ class PayloadDict(TypedDict):
     data: dict | list | str | tuple | None
 
 
-EMPTY = "__EMPTY__"
+EMPTY: EmptyType = "__EMPTY__"
 STOP_SIGNAL = "__STOP__"
+EMPTY_UUID = UUID(int=0)
 
 context = ContextVarWrapper()
 
 
-class BaseDispatcher:
+class BaseDispatcher(ABC):
     asyncio_based: bool
     _PAYLOAD_SEPARATOR: bytes = b"\x1d\x1d"
     _DATA_OBJECT: bytes = b"\x31"  # 1
@@ -76,10 +80,10 @@ class BaseDispatcher:
         self._sessions: dict = {}
 
         # State
-        self._running: Event | asyncio.Event = Event()
-        self._connected: Event | asyncio.Event = Event()
-        self._reconnecting: Event | asyncio.Event = Event()
-        self._shutdown_event: Event | asyncio.Event = Event()
+        self._running: Event | asyncio.Event
+        self._connected: Event | asyncio.Event
+        self._reconnecting: Event | asyncio.Event
+        self._shutdown_event: Event | asyncio.Event
 
     def __repr__(self):
         return (
@@ -160,15 +164,16 @@ class BaseDispatcher:
         )
 
     def _data_as_list(self, data: DataType) -> list:
-        if data == EMPTY:
+        if data is EMPTY:
             return []
         if isinstance(data, tuple):
             return list(data)
         return [data]
 
     # Event handling
+    @abstractmethod
     def _get_event_handlers(self) -> set[EventHandler]:
-        raise NotImplementedError
+        ...
 
     def _get_event_handler(self, event: str) -> Callable:
         """Get the appropriate handler for the given event.
@@ -220,7 +225,7 @@ class BaseDispatcher:
             self.rooms.remove(room)
 
 
-class Dispatcher(BaseDispatcher):
+class Dispatcher(BaseDispatcher, ABC):
     asyncio_based: bool = False
 
     def __init__(
@@ -239,6 +244,11 @@ class Dispatcher(BaseDispatcher):
         """
         super().__init__(namespace, parent_logger, reconnection, debug)
 
+        self._running: Event = Event()
+        self._connected: Event = Event()
+        self._reconnecting: Event = Event()
+        self._shutdown_event: Event = Event()
+
         # Thread management
         self._threads: dict[str, Thread] = {}
         self._threads_lock = RLock()
@@ -252,12 +262,12 @@ class Dispatcher(BaseDispatcher):
         raise AttributeError("AsyncDispatcher do not have threads")
 
     # Methods to implement based on broker used
+    @abstractmethod
     def _broker_reachable(self) -> bool:
         """Check if it is possible to connect to the broker."""
-        raise NotImplementedError(
-            "This method needs to be implemented in a subclass"
-        )
+        ...
 
+    @abstractmethod
     def _publish(
             self,
             namespace: str,
@@ -266,15 +276,12 @@ class Dispatcher(BaseDispatcher):
             timeout: int | float | None = None,
     ) -> None:
         """Publish the payload to the namespace."""
-        raise NotImplementedError(
-            "This method needs to be implemented in a subclass"
-        )
+        ...
 
+    @abstractmethod
     def _listen(self) -> Iterator[bytes]:
         """Get a generator that yields payloads that will be parsed."""
-        raise NotImplementedError(
-            "This method needs to be implemented in a subclass"
-        )
+        ...
 
     # Handling of broker-connection related events
     def _handle_broker_connect(self) -> None:
@@ -350,10 +357,10 @@ class Dispatcher(BaseDispatcher):
 
     def _trigger_connect_event(self) -> None:
         return self._trigger_event(
-            "connect", "sid", {"REMOTE_ADDR": self.namespace})
+            "connect", EMPTY_UUID, {"REMOTE_ADDR": self.namespace})
 
     def _trigger_disconnect_event(self) -> None:
-        return self._trigger_event("disconnect", "sid")
+        return self._trigger_event("disconnect", EMPTY_UUID)
 
     # Loops running once `run()` is called
     def _reconnection_loop(self) -> None:
@@ -393,13 +400,13 @@ class Dispatcher(BaseDispatcher):
                     self.logger.debug(f"Received event '{event}'")
                     room: str = message["room"]
                     if room is None or room in self.rooms:
-                        sid: uuid = message["host_uid"]
+                        sid: UUID = message["host_uid"]
                         context.sid = sid
                         data: DataType = message["data"]
-                        data: list = self._data_as_list(data)
+                        args: list = self._data_as_list(data)
                         # User-defined functions should not crash the whole listening loop
                         try:
-                            self._trigger_event(event, sid, *data)
+                            self._trigger_event(event, sid, *args)
                         except StopEvent:
                             self.emit(
                                 STOP_SIGNAL, room=room, namespace=self.namespace,
@@ -472,7 +479,7 @@ class Dispatcher(BaseDispatcher):
         with self._event_handlers_lock:
             self.event_handlers.add(event_handler)
 
-    def on(self, event: str, handler: Callable = None) -> None:
+    def on(self, event: str, handler: Callable = None) -> Callable | None:
         """Register an event handler
 
         :param event: The event name.
@@ -481,16 +488,16 @@ class Dispatcher(BaseDispatcher):
 
         Example:
             - As a method
-            def event_handler(sender_uid, data):
+            def event_handler(sid, data):
                 print(data)
             dispatcher.on("my_event", handler=event_handler)
 
             - As a decorator
             @dispatcher.on("my_event")
-            def event_handler(sender_uid, data):
+            def event_handler(sid, data):
                 print(data)
 
-            rem: sender_uid will always be the first argument. It can be used
+            rem: if wanted, sid should always be the first argument. It is useful
             to emit an event back to the sender
         """
         def set_handler(_handler: Callable):
@@ -718,7 +725,7 @@ class Dispatcher(BaseDispatcher):
             self._shutdown_event.clear()
 
 
-class AsyncDispatcher(BaseDispatcher):
+class AsyncDispatcher(BaseDispatcher, ABC):
     asyncio_based = True
 
     def __init__(
@@ -746,12 +753,12 @@ class AsyncDispatcher(BaseDispatcher):
         # Task management
         self._tasks: dict[str, Task] = {}
 
+    @abstractmethod
     async def _broker_reachable(self) -> bool:
         """Check if it is possible to connect to the broker."""
-        raise NotImplementedError(
-            "This method needs to be implemented in a subclass"
-        )
+        ...
 
+    @abstractmethod
     async def _publish(
             self,
             namespace: str,
@@ -760,15 +767,12 @@ class AsyncDispatcher(BaseDispatcher):
             timeout: int | float | None = None,
     ) -> None:
         """Publish the payload to the namespace."""
-        raise NotImplementedError(
-            "This method needs to be implemented in a subclass"
-        )
+        ...
 
+    @abstractmethod
     async def _listen(self) -> AsyncIterator[bytes]:
         """Get a generator that yields payloads that will be parsed."""
-        raise NotImplementedError(
-            "This method needs to be implemented in a subclass"
-        )
+        ...
 
     async def _handle_broker_connect(self) -> None:
         if not self.connected:
@@ -850,10 +854,10 @@ class AsyncDispatcher(BaseDispatcher):
 
     async def _trigger_connect_event(self) -> None:
         return await self._trigger_event(
-            "connect", "sid", {"REMOTE_ADDR": self.namespace})
+            "connect", EMPTY_UUID, {"REMOTE_ADDR": self.namespace})
 
     async def _trigger_disconnect_event(self) -> None:
-        return await self._trigger_event("disconnect", "sid")
+        return await self._trigger_event("disconnect", EMPTY_UUID)
 
     # Tasks running once `run()` is called
     async def _reconnection_loop(self) -> None:
@@ -896,10 +900,10 @@ class AsyncDispatcher(BaseDispatcher):
                         sid: UUID = message["host_uid"]
                         context.sid = sid
                         data: DataType = message["data"]
-                        data: list = self._data_as_list(data)
+                        args: list = self._data_as_list(data)
                         # User-defined functions should not crash the whole listening loop
                         try:
-                            await self._trigger_event(event, sid, *data)
+                            await self._trigger_event(event, sid, *args)
                         except StopEvent:
                             await self.emit(
                                 STOP_SIGNAL, room=room, namespace=self.namespace,
@@ -946,7 +950,7 @@ class AsyncDispatcher(BaseDispatcher):
     def session(self, identifier: Hashable):
         class _session_ctx_manager:
             def __init__(self, dispatcher, identifier):
-                self.dispatcher: Dispatcher = dispatcher
+                self.dispatcher: AsyncDispatcher = dispatcher
                 self.identifier: Hashable = identifier
                 self.session: dict | None = None
 
@@ -971,7 +975,7 @@ class AsyncDispatcher(BaseDispatcher):
         event_handler._set_dispatcher(self)
         self.event_handlers.add(event_handler)
 
-    def on(self, event: str, handler: Callable = None) -> None:
+    def on(self, event: str, handler: Callable = None) -> Callable | None:
         """Register an event handler
 
         :param event: The event name.
@@ -980,16 +984,16 @@ class AsyncDispatcher(BaseDispatcher):
 
         Example:
             - As a method
-            def event_handler(sender_uid, data):
+            async def event_handler(sid, data):
                 print(data)
             dispatcher.on("my_event", handler=event_handler)
 
             - As a decorator
             @dispatcher.on("my_event")
-            def event_handler(sender_uid, data):
+            async def event_handler(sid, data):
                 print(data)
 
-            rem: sender_uid will always be the first argument. It can be used
+            rem: if wanted, sid should always be the first argument. It is useful
             to emit an event back to the sender
         """
         def set_handler(_handler: Callable):
@@ -1095,7 +1099,7 @@ class AsyncDispatcher(BaseDispatcher):
         for task in self._tasks.values():
             task.cancel()
         # Wait for the tasks to be cancelled
-        await asyncio.sleep(0.1)
+        await asyncio.gather(*self._tasks.values(), return_exceptions=True)
         await self._cleanup_tasks()
 
     async def _cleanup_tasks(self) -> None:

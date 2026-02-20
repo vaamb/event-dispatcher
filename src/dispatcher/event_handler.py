@@ -3,11 +3,8 @@ from __future__ import annotations
 from typing import Hashable
 from uuid import UUID
 
-from .ABC import AsyncDispatcher, Dispatcher, EMPTY
+from .ABC import AsyncDispatcher, DataType, Dispatcher, EMPTY
 from .exceptions import UnknownEvent
-
-
-DataType: bytes | bytearray | dict | list | str | tuple | None | EMPTY
 
 
 class EventHandler:
