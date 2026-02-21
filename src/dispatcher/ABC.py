@@ -7,6 +7,7 @@ from collections.abc import Callable
 import inspect
 import logging
 from threading import Event, RLock, Thread
+import sys
 import time
 from typing import (
     AsyncIterator, Hashable, Iterator, Literal, TYPE_CHECKING, TypeAlias, TypedDict)
@@ -1100,7 +1101,16 @@ class AsyncDispatcher(BaseDispatcher, ABC):
         for task in self._tasks.values():
             task.cancel()
         # Wait for the tasks to be cancelled
-        await asyncio.gather(*self._tasks.values(), return_exceptions=True)
+        if sys.version_info < (3, 12):
+            # A data race in Python < 3.12 `asyncio.wait_for()` sometimes fails
+            #  to propagate `CancelledError` when a pending `queue.get()` is about
+            #  to complete.
+            await asyncio.sleep(0)  # let cancelled tasks start unwinding
+            pending = [t for t in self._tasks.values() if not t.done()]
+            if pending:
+                await asyncio.wait(pending, timeout=5.0)
+        else:
+            await asyncio.gather(*self._tasks.values(), return_exceptions=True)
         await self._cleanup_tasks()
 
     async def _cleanup_tasks(self) -> None:
