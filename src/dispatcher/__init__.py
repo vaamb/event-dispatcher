@@ -1,4 +1,4 @@
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
 from .ABC import AsyncDispatcher, context, Dispatcher, STOP_SIGNAL
 from .async_amqp_dispatcher import AsyncAMQPDispatcher
