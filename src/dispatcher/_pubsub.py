@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import ABC
 import asyncio
 from queue import Queue, Empty
 from typing import Generic, Self, TypeVar
