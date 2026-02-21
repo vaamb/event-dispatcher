@@ -75,8 +75,8 @@ class BaseDispatcher(ABC):
 
         # Event handling
         self.event_handlers: set[EventHandler] = set()
-        self.handlers: dict[str, Callable] = {}
-        self._fallback: Callable | None = None
+        self.handlers: dict[str, tuple[Callable, bool]] = {}
+        self._fallback: tuple [Callable, bool] | None = None
         self._sessions: dict = {}
 
         # State
@@ -175,7 +175,7 @@ class BaseDispatcher(ABC):
     def _get_event_handlers(self) -> set[EventHandler]:
         ...
 
-    def _get_event_handler(self, event: str) -> Callable:
+    def _get_event_handler(self, event: str) -> tuple[Callable, bool]:
         """Get the appropriate handler for the given event.
 
         Args:
@@ -193,7 +193,7 @@ class BaseDispatcher(ABC):
 
         # Then check event handlers:
         for handler in self._get_event_handlers():
-            event_handler = handler.get_handler(event)
+            event_handler = handler._get_handler(event)
             if event_handler is not None:
                 return event_handler
 
@@ -204,7 +204,7 @@ class BaseDispatcher(ABC):
         raise UnknownEvent(f"No handler found for event '{event}'")
 
     @property
-    def fallback(self) -> Callable:
+    def fallback(self) -> tuple[Callable, bool] | None:
         return self._fallback
 
     @fallback.setter
@@ -212,7 +212,10 @@ class BaseDispatcher(ABC):
         """Set the fallback function that will be called if no event handler
         is found.
         """
-        self._fallback = fct
+        # Check if the handler expects a 'sid' parameter
+        signature = inspect.signature(fct)
+        need_sid = "sid" in signature.parameters
+        self._fallback = (fct, need_sid)
 
     fallback_handler = fallback
 
@@ -331,11 +334,7 @@ class Dispatcher(BaseDispatcher, ABC):
             raise StopEvent("Received stop signal")
 
         try:
-            event_handler = self._get_event_handler(event)
-            signature = inspect.signature(event_handler)
-
-            # Check if the handler expects a 'sid' parameter
-            need_sid = "sid" in signature.parameters
+            event_handler, need_sid = self._get_event_handler(event)
 
             # Prepare arguments
             handler_args = (sid, *args) if need_sid else args
@@ -502,7 +501,10 @@ class Dispatcher(BaseDispatcher, ABC):
         """
         def set_handler(_handler: Callable):
             with self._event_handlers_lock:
-                self.handlers[event] = _handler
+                # Check if the handler expects a 'sid' parameter
+                signature = inspect.signature(_handler)
+                need_sid = "sid" in signature.parameters
+                self.handlers[event] = (_handler, need_sid)
             return _handler
 
         if handler is None:
@@ -820,11 +822,7 @@ class AsyncDispatcher(BaseDispatcher, ABC):
             raise StopEvent("Received stop signal")
 
         try:
-            event_handler = self._get_event_handler(event)
-            signature = inspect.signature(event_handler)
-
-            # Check if the handler expects a 'sid' parameter
-            need_sid = "sid" in signature.parameters
+            event_handler, need_sid = self._get_event_handler(event)
 
             # Prepare arguments
             handler_args = (sid, *args) if need_sid else args
@@ -997,7 +995,10 @@ class AsyncDispatcher(BaseDispatcher, ABC):
             to emit an event back to the sender
         """
         def set_handler(_handler: Callable):
-            self.handlers[event] = _handler
+            # Check if the handler expects a 'sid' parameter
+            signature = inspect.signature(_handler)
+            need_sid = "sid" in signature.parameters
+            self.handlers[event] = (_handler, need_sid)
             return _handler
 
         if handler is None:
