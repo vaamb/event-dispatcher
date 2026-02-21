@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import queue
 import logging
 
-from ._pubsub import StupidPubSub
+from ._pubsub import NoMessage, StupidPubSub
 from .ABC import Dispatcher
 
 
@@ -48,7 +47,7 @@ class InMemoryDispatcher(Dispatcher):
         while self.running:
             try:
                 message = self.pubsub.listen(timeout=1)
-            except queue.Empty:
+            except NoMessage:
                 pass
             except Exception as e:
                 self.logger.exception(
@@ -56,3 +55,7 @@ class InMemoryDispatcher(Dispatcher):
                 )
             else:
                 yield message
+
+    def stop(self) -> None:
+        super().stop()
+        self.pubsub.broker.unlink(self.pubsub)

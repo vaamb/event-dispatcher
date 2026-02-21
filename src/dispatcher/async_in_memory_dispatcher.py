@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import queue
 import logging
 
-from ._pubsub import AsyncPubSub
+from ._pubsub import AsyncPubSub, NoMessage
 from .ABC import AsyncDispatcher
 
 
@@ -46,7 +45,7 @@ class AsyncInMemoryDispatcher(AsyncDispatcher):
         while self.running:
             try:
                 message = await self.pubsub.listen(timeout=1)
-            except queue.Empty:
+            except NoMessage:
                 pass
             except Exception as e:
                 self.logger.exception(
@@ -57,3 +56,7 @@ class AsyncInMemoryDispatcher(AsyncDispatcher):
 
     async def initialize(self) -> None:
         pass
+
+    async def stop(self) -> None:
+        await super().stop()
+        self.pubsub.broker.unlink(self.pubsub)
