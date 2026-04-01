@@ -16,7 +16,7 @@ test = [
 ]
 
 [project.urls]
-repository  = "https://gitlab.com/eupla/dispatcher"
+repository  = "https://github.com/vaamb/event-dispatcher"
 
 [build-system]
 requires = ["setuptools>=61", "wheel"]
