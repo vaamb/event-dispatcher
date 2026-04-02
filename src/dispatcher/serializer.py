@@ -11,7 +11,7 @@ try:
 except ImportError:
     warnings.warn("The dispatcher could be faster if orjson was installed")
 
-    orjson = None
+    orjson = None  # ty: ignore[invalid-assignment]
     import json
 
     def _serializer(o) -> str:
@@ -23,6 +23,7 @@ except ImportError:
             return str(o)
         if isinstance(o, uuid.UUID):
             return str(o)
+        raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
 
     def json_dumps(obj: Any) -> bytes:
         str_obj: str = json.dumps(obj, default=_serializer)
