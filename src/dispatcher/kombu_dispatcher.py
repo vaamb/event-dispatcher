@@ -7,7 +7,7 @@ from typing import Iterator
 try:
     import kombu
 except ImportError:
-    kombu = None
+    kombu = None  # ty: ignore[invalid-assignment]
 
 from .ABC import Dispatcher
 
@@ -34,11 +34,11 @@ class KombuDispatcher(Dispatcher):
             self,
             namespace: str = "event_dispatcher",
             url: str = "memory://",
-            parent_logger: logging.Logger = None,
-            exchange_options: dict = None,
-            queue_options: dict = None,
-            producer_options: dict = None,
-            publisher_options: dict = None,
+            parent_logger: logging.Logger | None = None,
+            exchange_options: dict | None = None,
+            queue_options: dict | None = None,
+            producer_options: dict | None = None,
+            publisher_options: dict | None = None,
             reconnection: bool = True,
             debug: bool = False,
     ) -> None:
@@ -51,8 +51,8 @@ class KombuDispatcher(Dispatcher):
         self.queue_options: dict = queue_options or {}
         self.producer_options: dict = producer_options or {}
         self.publisher_options: dict = publisher_options or {}
-        self._publisher_connection: "kombu.Connection" | None = None
-        self._listener_connection: "kombu.Connection" | None = None
+        self._publisher_connection: kombu.Connection | None = None
+        self._listener_connection: kombu.Connection | None = None
 
     def _broker_reachable(self) -> bool:
         try:
@@ -66,22 +66,22 @@ class KombuDispatcher(Dispatcher):
         else:
             return True
 
-    def _connection(self) -> "kombu.Connection":
+    def _connection(self) -> kombu.Connection:
         return kombu.Connection(self.url)
 
     @property
-    def publisher_connection(self) -> "kombu.Connection":
+    def publisher_connection(self) -> kombu.Connection:
         if self._publisher_connection is None:
             self._publisher_connection = self._connection()
         return self._publisher_connection
 
     @property
-    def listener_connection(self) -> "kombu.Connection":
+    def listener_connection(self) -> kombu.Connection:
         if self._listener_connection is None:
             self._listener_connection = self._connection()
         return self._listener_connection
 
-    def _channel(self, connection: "kombu.Connection") -> "kombu.connection.Channel":
+    def _channel(self, connection: kombu.Connection) -> kombu.connection.Channel:
         retry = 1
         while True:
             try:
@@ -95,13 +95,13 @@ class KombuDispatcher(Dispatcher):
                     raise e
                 retry -= 1
 
-    def _exchange(self) -> "kombu.Exchange":
+    def _exchange(self) -> kombu.Exchange:
         options = {"durable": False}
         options.update({**self.exchange_options})
         name = options.pop("name", "dispatcher")
         return kombu.Exchange(name, **options)
 
-    def _queue(self) -> "kombu.Queue":
+    def _queue(self) -> kombu.Queue:
         options = {**self.queue_options}
         name = options.pop("name", self.namespace)
         routing_keys = [name]
@@ -121,7 +121,7 @@ class KombuDispatcher(Dispatcher):
     def _publish(
             self,
             namespace: str,
-            payload: bytes,
+            payload: bytes | bytearray,
             ttl: int | None = None,
             timeout: int | float | None = None,
     ) -> None:
