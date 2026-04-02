@@ -43,7 +43,7 @@ class StupidPubSub(BasePubSub):
         self.broker.link(self)
         self.messages = Queue(maxsize=queue_length)
 
-    def publish(self, namespace: str, message: dict | bytes) -> int:
+    def publish(self, namespace: str, message: bytes | bytearray) -> int:
         broker = Broker._brokers.get(namespace)
         if broker is None:
             return 0
@@ -51,7 +51,7 @@ class StupidPubSub(BasePubSub):
         published = broker.push(payload)
         return published
 
-    def listen(self, timeout: float | None = None) -> dict | bytes:
+    def listen(self, timeout: float | None = None) -> bytes | bytearray:
         try:
             return self.messages.get(block=True, timeout=timeout)
         except Empty:
@@ -67,7 +67,7 @@ class AsyncPubSub(BasePubSub):
         self.broker.link(self)
         self.messages = asyncio.Queue(maxsize=queue_length)
 
-    async def publish(self, namespace: str, message: dict | bytes) -> int:
+    async def publish(self, namespace: str, message: bytes | bytearray) -> int:
         broker = AsyncBroker._brokers.get(namespace)
         if broker is None:
             return 0
