@@ -1,19 +1,24 @@
 from __future__ import annotations
 
 import logging
+import typing as t
 
 from .ABC import AsyncDispatcher
+
+if t.TYPE_CHECKING:
+    from redis import asyncio as aioredis
+    from redis.exceptions import RedisError
 
 try:
     from redis import asyncio as aioredis
     from redis.exceptions import RedisError
 except ImportError:
     try:
-        import aioredis
-        from aioredis.exceptions import RedisError
+        import aioredis  # ty: ignore[unresolved-import]
+        from aioredis.exceptions import RedisError  # ty: ignore[unresolved-import]
     except ImportError:
-        aioredis = None
-        RedisError = None
+        aioredis = None  # ty: ignore[conflicting-declarations]
+        RedisError = Exception  # ty: ignore[conflicting-declarations]
 
 
 class AsyncRedisDispatcher(AsyncDispatcher):
@@ -33,9 +38,9 @@ class AsyncRedisDispatcher(AsyncDispatcher):
             self,
             namespace: str = "event_dispatcher",
             url: str = "redis://localhost:6379/0",
-            parent_logger: logging.Logger = None,
-            redis_options: dict = None,
-            queue_options: dict = None,
+            parent_logger: logging.Logger | None = None,
+            redis_options: dict | None = None,
+            queue_options: dict | None = None,
             reconnection: bool = True,
             debug: bool = False,
     ) -> None:
@@ -49,12 +54,12 @@ class AsyncRedisDispatcher(AsyncDispatcher):
         self.redis_options: dict = redis_options or {}
         self.redis_url: str = url
         self.queue_options: dict = queue_options or {}
-        self.redis: aioredis.Redis | None = None
-        self.pubsub: aioredis.client.PubSub | None = None
+        self.redis: aioredis.Redis | None = None  # ty: ignore[unresolved-attribute]
+        self.pubsub: aioredis.client.PubSub | None = None  # ty: ignore[unresolved-attribute]
 
-    def _broker_reachable(self) -> bool:
+    async def _broker_reachable(self) -> bool:
         try:
-            aioredis.Redis.from_url(self.redis_url, **self.redis_options)
+            aioredis.Redis.from_url(self.redis_url, **self.redis_options)  # ty: ignore[unresolved-attribute]
         except RedisError as e:
             self.logger.debug(
                 f"Encountered an exception while trying to reach the broker. "
@@ -66,7 +71,7 @@ class AsyncRedisDispatcher(AsyncDispatcher):
 
     def _connect_to_redis(self) -> None:
         try:
-            self.redis = aioredis.Redis.from_url(
+            self.redis = aioredis.Redis.from_url(  # ty: ignore[unresolved-attribute]
                 self.redis_url, **self.redis_options)
             self.pubsub = self.redis.pubsub(ignore_subscribe_messages=True)
         except RedisError as e:
@@ -75,6 +80,7 @@ class AsyncRedisDispatcher(AsyncDispatcher):
                 f"`{e.__class__.__name__}: {e}`.")
 
     def _subscribe(self) -> None:
+        assert self.pubsub is not None
         options = {**self.queue_options}
         name = options.pop("name", self.namespace)
         extra_routing_keys = options.pop("extra_routing_keys", [])
@@ -89,12 +95,13 @@ class AsyncRedisDispatcher(AsyncDispatcher):
     async def _publish(
             self,
             namespace: str,
-            payload: bytes,
+            payload: bytes | bytearray,
             ttl: int | None = None,
             timeout: int | float | None = None,
-    ) -> int:
+    ) -> None:
+        assert self.redis is not None
         try:
-            return await self.redis.publish(namespace, payload)
+            await self.redis.publish(namespace, payload)
         except Exception as e:
             self.logger.error(f"{e.__class__.__name__}: {e}")
             raise ConnectionError("Failed to publish payload")
@@ -105,6 +112,7 @@ class AsyncRedisDispatcher(AsyncDispatcher):
                 if self.redis is None:
                     self._connect_to_redis()
                     self._subscribe()
+                assert self.pubsub is not None
                 try:
                     message = await self.pubsub.handle_message(
                         await self.pubsub.parse_response(block=False, timeout=1))

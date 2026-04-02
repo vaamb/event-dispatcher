@@ -5,7 +5,7 @@ import logging
 try:
     import redis
 except ImportError:
-    redis = None
+    redis = None  # ty: ignore[invalid-assignment]
 
 from .ABC import Dispatcher
 
@@ -27,9 +27,9 @@ class RedisDispatcher(Dispatcher):
             self,
             namespace: str = "event_dispatcher",
             url: str = "redis://localhost:6379/0",
-            parent_logger: logging.Logger = None,
-            redis_options: dict = None,
-            queue_options: dict = None,
+            parent_logger: logging.Logger | None = None,
+            redis_options: dict | None = None,
+            queue_options: dict | None = None,
             reconnection: bool = True,
             debug: bool = False,
     ) -> None:
@@ -68,6 +68,7 @@ class RedisDispatcher(Dispatcher):
             )
 
     def _subscribe(self) -> None:
+        assert self.pubsub is not None
         options = {**self.queue_options}
         name = options.pop("name", self.namespace)
         extra_routing_keys = options.pop("extra_routing_keys", [])
@@ -82,12 +83,13 @@ class RedisDispatcher(Dispatcher):
     def _publish(
             self,
             namespace: str,
-            payload: bytes,
+            payload: bytes | bytearray,
             ttl: int | None = None,
             timeout: int | float | None = None,
-    ) -> int:
+    ) -> None:
+        assert self.redis is not None
         try:
-            return self.redis.publish(namespace, payload)
+            self.redis.publish(namespace, payload)
         except Exception as e:
             self.logger.error(f"{e.__class__.__name__}: {e}")
             raise ConnectionError("Failed to publish payload")
@@ -98,6 +100,7 @@ class RedisDispatcher(Dispatcher):
                 if self.redis is None:
                     self._connect_to_redis()
                     self._subscribe()
+                assert self.pubsub is not None
                 try:
                     message = self.pubsub.handle_message(
                         self.pubsub.parse_response(block=True, timeout=1))
