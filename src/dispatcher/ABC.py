@@ -775,7 +775,14 @@ class AsyncDispatcher(BaseDispatcher, ABC):
 
     @abstractmethod
     def _listen(self) -> AsyncGenerator[bytes, None]:
-        """Get a generator that yields payloads that will be parsed."""
+        """Get a generator that yields payloads that will be parsed.
+
+        Note: declared as `def` (not `async def`) intentionally. Implementations
+        should be async generator functions (`async def` + `yield`), which are
+        synchronous callables returning an `AsyncGenerator` directly — not a
+        coroutine. Using `async def` here would cause type checkers to model the
+        call as returning a coroutine wrapping the generator, breaking `async for`.
+        """
         ...
 
     async def _handle_broker_connect(self) -> None:
