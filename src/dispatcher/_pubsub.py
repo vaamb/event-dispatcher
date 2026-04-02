@@ -105,7 +105,7 @@ class BaseBroker(Generic[PubSubT]):
     def unlink(self, client: PubSubT) -> None:
         self.clients.discard(client)
         if not self.clients:
-            self.__class__._brokers = {
+            self.__class__._brokers = {  # ty: ignore[invalid-assignment]
                 k: v for k, v in self.__class__._brokers.items() if v is not self
             }
 
@@ -115,7 +115,7 @@ class Broker(BaseBroker[StupidPubSub]):
 
     __slots__ = ()
 
-    def push(self, payload: dict | bytes) -> int:
+    def push(self, payload: dict) -> int:
         pushed = 0
         for client in self.clients:
             if payload["namespace"] in client.channels:
@@ -130,7 +130,7 @@ class AsyncBroker(BaseBroker[AsyncPubSub]):
 
     __slots__ = ()
 
-    async def push(self, payload: dict | bytes) -> int:
+    async def push(self, payload: dict) -> int:
         pushed = 0
         for client in self.clients:
             if payload["namespace"] in client.channels:
