@@ -34,6 +34,7 @@ class AsyncRedisDispatcher(AsyncDispatcher):
     :param redis_options: Options to pass to the Redis instance.
     :param queue_options: Options to add extra routing keys.
     """
+
     def __init__(
             self,
             namespace: str = "event_dispatcher",
@@ -54,8 +55,31 @@ class AsyncRedisDispatcher(AsyncDispatcher):
         self.redis_options: dict = redis_options or {}
         self.redis_url: str = url
         self.queue_options: dict = queue_options or {}
-        self.redis: aioredis.Redis | None = None  # ty: ignore[unresolved-attribute]
-        self.pubsub: aioredis.client.PubSub | None = None  # ty: ignore[unresolved-attribute]
+        self._redis: aioredis.Redis | None = None  # ty: ignore[unresolved-attribute]
+        self._pubsub: aioredis.client.PubSub | None = None  # ty: ignore[unresolved-attribute]
+
+    @property
+    def redis(self) -> aioredis.Redis:  # ty: ignore[unresolved-attribute]
+        if self._redis is None:
+            self._redis = aioredis.Redis.from_url(self.redis_url, **self.redis_options)  # ty: ignore[unresolved-attribute]
+        return self._redis
+
+    @property
+    def pubsub(self):
+        if self._pubsub is None:
+            pubsub = self.redis.pubsub(ignore_subscribe_messages=True)
+            options = {**self.queue_options}
+            name = options.pop("name", self.namespace)
+            extra_routing_keys = options.pop("extra_routing_keys", [])
+            pubsub.subscribe(name)
+            if isinstance(extra_routing_keys, str):
+                extra_routing_keys = [extra_routing_keys]
+            if name != self.namespace:
+                extra_routing_keys.append(name)
+            for key in extra_routing_keys:
+                pubsub.subscribe(key)
+            self._pubsub = pubsub
+        return self._pubsub
 
     async def _broker_reachable(self) -> bool:
         try:
@@ -71,26 +95,13 @@ class AsyncRedisDispatcher(AsyncDispatcher):
 
     def _connect_to_redis(self) -> None:
         try:
-            self.redis = aioredis.Redis.from_url(  # ty: ignore[unresolved-attribute]
+            self._redis = aioredis.Redis.from_url(  # ty: ignore[unresolved-attribute]
                 self.redis_url, **self.redis_options)
-            self.pubsub = self.redis.pubsub(ignore_subscribe_messages=True)
+            self._pubsub = self.redis.pubsub(ignore_subscribe_messages=True)
         except RedisError as e:
             self.logger.error(
                 f"Encountered an error while connecting to the server: Error msg: "
                 f"`{e.__class__.__name__}: {e}`.")
-
-    def _subscribe(self) -> None:
-        assert self.pubsub is not None
-        options = {**self.queue_options}
-        name = options.pop("name", self.namespace)
-        extra_routing_keys = options.pop("extra_routing_keys", [])
-        self.pubsub.subscribe(name)
-        if isinstance(extra_routing_keys, str):
-            extra_routing_keys = [extra_routing_keys]
-        if name != self.namespace:
-            extra_routing_keys.append(name)
-        for key in extra_routing_keys:
-            self.pubsub.subscribe(key)
 
     async def _publish(
             self,
@@ -99,7 +110,6 @@ class AsyncRedisDispatcher(AsyncDispatcher):
             ttl: int | None = None,
             timeout: int | float | None = None,
     ) -> None:
-        assert self.redis is not None
         try:
             await self.redis.publish(namespace, payload)
         except Exception as e:
@@ -109,10 +119,6 @@ class AsyncRedisDispatcher(AsyncDispatcher):
     async def _listen(self):
         while self.running:
             try:
-                if self.redis is None:
-                    self._connect_to_redis()
-                    self._subscribe()
-                assert self.pubsub is not None
                 try:
                     message = await self.pubsub.handle_message(
                         await self.pubsub.parse_response(block=False, timeout=1))

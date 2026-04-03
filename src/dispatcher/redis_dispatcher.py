@@ -41,8 +41,31 @@ class RedisDispatcher(Dispatcher):
         self.redis_options: dict = redis_options or {}
         self.redis_url: str = url
         self.queue_options: dict = queue_options or {}
-        self.redis: redis.Redis | None = None
-        self.pubsub: redis.client.PubSub | None = None
+        self._redis: redis.Redis | None = None
+        self._pubsub: redis.client.PubSub | None = None
+
+    @property
+    def redis(self) -> redis.Redis:  # ty: ignore[unresolved-attribute]
+        if self._redis is None:
+            self._redis = redis.Redis.from_url(self.redis_url, **self.redis_options)
+        return self._redis
+
+    @property
+    def pubsub(self):
+        if self._pubsub is None:
+            pubsub = self.redis.pubsub(ignore_subscribe_messages=True)
+            options = {**self.queue_options}
+            name = options.pop("name", self.namespace)
+            extra_routing_keys = options.pop("extra_routing_keys", [])
+            pubsub.subscribe(name)
+            if isinstance(extra_routing_keys, str):
+                extra_routing_keys = [extra_routing_keys]
+            if name != self.namespace:
+                extra_routing_keys.append(name)
+            for key in extra_routing_keys:
+                pubsub.subscribe(key)
+            self._pubsub = pubsub
+        return self._pubsub
 
     def _broker_reachable(self) -> bool:
         try:
@@ -56,30 +79,6 @@ class RedisDispatcher(Dispatcher):
         else:
             return True
 
-    def _connect_to_redis(self) -> None:
-        try:
-            self.redis = redis.Redis.from_url(
-                self.redis_url, **self.redis_options)
-            self.pubsub = self.redis.pubsub(ignore_subscribe_messages=True)
-        except redis.ConnectionError as e:
-            self.logger.error(
-                f"Encountered an error while connecting to the server: Error msg: "
-                f"`{e.__class__.__name__}: {e}`."
-            )
-
-    def _subscribe(self) -> None:
-        assert self.pubsub is not None
-        options = {**self.queue_options}
-        name = options.pop("name", self.namespace)
-        extra_routing_keys = options.pop("extra_routing_keys", [])
-        self.pubsub.subscribe(name)
-        if isinstance(extra_routing_keys, str):
-            extra_routing_keys = [extra_routing_keys]
-        if name != self.namespace:
-            extra_routing_keys.append(name)
-        for key in extra_routing_keys:
-            self.pubsub.subscribe(key)
-
     def _publish(
             self,
             namespace: str,
@@ -87,7 +86,6 @@ class RedisDispatcher(Dispatcher):
             ttl: int | None = None,
             timeout: int | float | None = None,
     ) -> None:
-        assert self.redis is not None
         try:
             self.redis.publish(namespace, payload)
         except Exception as e:
@@ -97,10 +95,6 @@ class RedisDispatcher(Dispatcher):
     def _listen(self):
         while self.running:
             try:
-                if self.redis is None:
-                    self._connect_to_redis()
-                    self._subscribe()
-                assert self.pubsub is not None
                 try:
                     message = self.pubsub.handle_message(
                         self.pubsub.parse_response(block=True, timeout=1))
