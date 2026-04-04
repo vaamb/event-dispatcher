@@ -9,8 +9,10 @@ import logging
 from threading import Event, RLock, Thread
 import sys
 import time
+import typing as t
 from typing import (
-    AsyncIterator, Hashable, Iterator, Literal, TYPE_CHECKING, TypeAlias, TypedDict)
+    AsyncGenerator, Generic, Hashable, Iterator, Literal, overload, TypeAlias,
+    TypedDict, TypeVar)
 import uuid
 from uuid import UUID
 
@@ -19,19 +21,20 @@ from .exceptions import StopEvent, UnknownEvent
 from .serializer import Serializer
 
 
-if TYPE_CHECKING:
-    from .event_handler import AsyncEventHandler, EventHandler
+if t.TYPE_CHECKING:
+    from .event_handler import AsyncEventHandler, BaseEventHandler, EventHandler
 
 
 EmptyType = Literal["__EMPTY__"]
 DataType: TypeAlias = bytes | bytearray | dict | list | str | tuple | None | EmptyType
+EventHandlerT = TypeVar("EventHandlerT", bound="BaseEventHandler")
 
 
 class PayloadDict(TypedDict):
     host_uid: UUID
     event: str
-    room: str | None
-    data: dict | list | str | tuple | None
+    room: str
+    data: DataType
 
 
 EMPTY: EmptyType = "__EMPTY__"
@@ -41,7 +44,7 @@ EMPTY_UUID = UUID(int=0)
 context = ContextVarWrapper()
 
 
-class BaseDispatcher(ABC):
+class BaseDispatcher(ABC, Generic[EventHandlerT]):
     asyncio_based: bool
     _PAYLOAD_SEPARATOR: bytes = b"\x1d\x1d"
     _DATA_OBJECT: bytes = b"\x31"  # 1
@@ -75,7 +78,7 @@ class BaseDispatcher(ABC):
         self.rooms: set[str] = {self.host_uid.hex}
 
         # Event handling
-        self.event_handlers: set[EventHandler] = set()
+        self.event_handlers: set[EventHandlerT] = set()
         self.handlers: dict[str, tuple[Callable, bool]] = {}
         self._fallback: tuple [Callable, bool] | None = None
         self._sessions: dict = {}
@@ -126,11 +129,9 @@ class BaseDispatcher(ABC):
     def _generate_payload(
             self,
             event: str,
-            room: str | UUID | None = None,
+            room: str | None = None,
             data: DataType = EMPTY,
     ) -> bytearray:
-        if isinstance(room, UUID):
-            room = room.hex
         rv = bytearray()
         rv += self.serializer.dumps(
             {
@@ -173,7 +174,7 @@ class BaseDispatcher(ABC):
 
     # Event handling
     @abstractmethod
-    def _get_event_handlers(self) -> set[EventHandler]:
+    def _get_event_handlers(self) -> set[EventHandlerT]:
         ...
 
     def _get_event_handler(self, event: str) -> tuple[Callable, bool]:
@@ -213,6 +214,9 @@ class BaseDispatcher(ABC):
         """Set the fallback function that will be called if no event handler
         is found.
         """
+        if fct is None:
+            self._fallback = None
+            return
         # Check if the handler expects a 'sid' parameter
         signature = inspect.signature(fct)
         need_sid = "sid" in signature.parameters
@@ -229,7 +233,7 @@ class BaseDispatcher(ABC):
             self.rooms.remove(room)
 
 
-class Dispatcher(BaseDispatcher, ABC):
+class Dispatcher(BaseDispatcher["EventHandler"], ABC):
     asyncio_based: bool = False
 
     def __init__(
@@ -479,7 +483,11 @@ class Dispatcher(BaseDispatcher, ABC):
         with self._event_handlers_lock:
             self.event_handlers.add(event_handler)
 
-    def on(self, event: str, handler: Callable = None) -> Callable | None:
+    @overload
+    def on(self, event: str) -> Callable[[Callable], Callable]: ...
+    @overload
+    def on(self, event: str, handler: Callable) -> None: ...
+    def on(self, event: str, handler: Callable | None = None) -> Callable | None:
         """Register an event handler
 
         :param event: The event name.
@@ -538,7 +546,7 @@ class Dispatcher(BaseDispatcher, ABC):
         if isinstance(namespace, str):
             namespace = namespace.strip("/")
         namespace = namespace or self.namespace
-        room = to or room
+        room = to.hex if to is not None else room
         payload: bytearray = self._generate_payload(event, room, data)
         try:
             self._publish(namespace, payload, ttl, timeout)
@@ -571,7 +579,7 @@ class Dispatcher(BaseDispatcher, ABC):
         #if not self.running or self._shutdown_event.is_set():
         #    raise RuntimeError("Cannot start background task: dispatcher is not running")
 
-        task_name = task_name or f"dispatcher-{target.__name__}"
+        task_name = task_name or f"dispatcher-{getattr(target, '__name__', repr(target))}"
 
         # Create a wrapper function
         def wrapped_target():
@@ -728,7 +736,7 @@ class Dispatcher(BaseDispatcher, ABC):
             self._shutdown_event.clear()
 
 
-class AsyncDispatcher(BaseDispatcher, ABC):
+class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
     asyncio_based = True
 
     def __init__(
@@ -765,7 +773,7 @@ class AsyncDispatcher(BaseDispatcher, ABC):
     async def _publish(
             self,
             namespace: str,
-            payload: bytes,
+            payload: bytes | bytearray,
             ttl: int | None = None,
             timeout: int | float | None = None,
     ) -> None:
@@ -773,8 +781,15 @@ class AsyncDispatcher(BaseDispatcher, ABC):
         ...
 
     @abstractmethod
-    async def _listen(self) -> AsyncIterator[bytes]:
-        """Get a generator that yields payloads that will be parsed."""
+    def _listen(self) -> AsyncGenerator[bytes, None]:
+        """Get a generator that yields payloads that will be parsed.
+
+        Note: declared as `def` (not `async def`) intentionally. Implementations
+        should be async generator functions (`async def` + `yield`), which are
+        synchronous callables returning an `AsyncGenerator` directly — not a
+        coroutine. Using `async def` here would cause type checkers to model the
+        call as returning a coroutine wrapping the generator, breaking `async for`.
+        """
         ...
 
     async def _handle_broker_connect(self) -> None:
@@ -797,7 +812,7 @@ class AsyncDispatcher(BaseDispatcher, ABC):
         await self._stop_tasks()
 
     # Events triggering
-    def _get_event_handlers(self) -> set[EventHandler]:
+    def _get_event_handlers(self) -> set[AsyncEventHandler]:
         return self.event_handlers
 
     async def _trigger_event(
@@ -974,7 +989,11 @@ class AsyncDispatcher(BaseDispatcher, ABC):
         event_handler._set_dispatcher(self)
         self.event_handlers.add(event_handler)
 
-    def on(self, event: str, handler: Callable = None) -> Callable | None:
+    @overload
+    def on(self, event: str) -> Callable[[Callable], Callable]: ...
+    @overload
+    def on(self, event: str, handler: Callable) -> None: ...
+    def on(self, event: str, handler: Callable | None = None) -> Callable | None:
         """Register an event handler
 
         :param event: The event name.
@@ -1032,7 +1051,7 @@ class AsyncDispatcher(BaseDispatcher, ABC):
         if isinstance(namespace, str):
             namespace = namespace.strip("/")
         namespace = namespace or self.namespace
-        room = to or room
+        room = to.hex if to is not None else room
         payload: bytearray = self._generate_payload(event, room, data)
         try:
             await self._publish(namespace, payload, ttl, timeout)
@@ -1065,7 +1084,7 @@ class AsyncDispatcher(BaseDispatcher, ABC):
         #if not self.running or self._shutdown_event.is_set():
         #    raise RuntimeError("Cannot start background task: dispatcher is not running")
 
-        task_name = task_name or f"dispatcher-{target.__name__}"
+        task_name = task_name or f"dispatcher-{getattr(target, '__name__', repr(target))}"
 
         # Create a wrapper coroutine
         async def wrapped_target():

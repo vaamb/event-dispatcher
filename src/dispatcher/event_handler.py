@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 import inspect
-from typing import Callable, Hashable
+from typing import Callable, Generic, Hashable, TypeVar
 from uuid import UUID
 
-from .ABC import AsyncDispatcher, DataType, Dispatcher, EMPTY
-from .exceptions import UnknownEvent
+from .ABC import AsyncDispatcher, BaseDispatcher, DataType, Dispatcher, EMPTY
 
 
-class EventHandler:
-    asyncio_based = False
+DispatcherT = TypeVar("DispatcherT", bound=BaseDispatcher)
+
+
+class BaseEventHandler(ABC, Generic[DispatcherT]):
+    asyncio_based: bool
 
     """Base class for class-based event handler.
 
@@ -20,33 +23,22 @@ class EventHandler:
         super().__init__(**kwargs)
         namespace = namespace.strip("/")
         self.namespace = namespace
-        self._dispatcher: AsyncDispatcher | Dispatcher | None = None
+        self._dispatcher: DispatcherT | None = None
         self._handlers: dict[str, tuple[Callable, bool] | None] = {}
 
-    def _set_dispatcher(self, dispatcher: Dispatcher) -> None:
-        if dispatcher.asyncio_based:
-            raise RuntimeError(
-                "dispatcher must be an instance of Dispatcher class"
-            )
-        self._dispatcher: Dispatcher = dispatcher
+    @abstractmethod
+    def _set_dispatcher(self, dispatcher: DispatcherT) -> None: ...
 
     @property
-    def dispatcher(self) -> Dispatcher:
+    def dispatcher(self) -> DispatcherT:
+        assert self._dispatcher is not None
         return self._dispatcher
 
     def enter_room(self, room: str) -> None:
-        self._dispatcher.enter_room(room)
+        self.dispatcher.enter_room(room)
 
     def leave_room(self, room: str) -> None:
-        self._dispatcher.leave_room(room)
-
-    def session(self, sid: Hashable):
-        return self._dispatcher.session(sid)
-
-    def disconnect(self, sid: str | UUID) -> None:
-        if isinstance(sid, str):
-            sid = UUID(sid)
-        self._dispatcher.disconnect(sid)
+        self.dispatcher.leave_room(room)
 
     def _get_handler(self, event: str) -> tuple[Callable, bool] | None:
         handler_name = f"on_{event}"
@@ -60,6 +52,40 @@ class EventHandler:
             else:
                 self._handlers[handler_name] = None
         return self._handlers[handler_name]
+
+    @abstractmethod
+    def disconnect(self, sid: str | UUID) -> None: ...
+
+    @abstractmethod
+    def emit(
+            self,
+            event: str,
+            data: DataType = EMPTY,
+            to: UUID | None = None,
+            room: str | None = None,
+            namespace: str | None = None,
+            ttl: int | None = None,
+            **kwargs
+    ) -> bool: ...
+
+
+class EventHandler(BaseEventHandler[Dispatcher]):
+    asyncio_based = False
+
+    def _set_dispatcher(self, dispatcher: Dispatcher) -> None:
+        if not isinstance(dispatcher, Dispatcher):
+            raise RuntimeError(
+                "dispatcher must be an instance of Dispatcher class"
+            )
+        self._dispatcher = dispatcher
+
+    def session(self, sid: Hashable):
+        return self.dispatcher.session(sid)
+
+    def disconnect(self, sid: str | UUID) -> None:
+        if isinstance(sid, str):
+            sid = UUID(sid)
+        self.dispatcher.disconnect(sid)
 
     def emit(
             self,
@@ -89,40 +115,29 @@ class EventHandler:
         if isinstance(namespace, str):
             namespace = namespace.strip("/")
         namespace = namespace or self.namespace
-        room = to or room
-        return self._dispatcher.emit(event, data, to, room, namespace, ttl, **kwargs)
+        room = to.hex if to is not None else room
+        return self.dispatcher.emit(event, data, to, room, namespace, ttl, **kwargs)
 
 
-class AsyncEventHandler(EventHandler):
+class AsyncEventHandler(BaseEventHandler[AsyncDispatcher]):
     asyncio_based = True
 
     def _set_dispatcher(self, dispatcher: AsyncDispatcher) -> None:
-        if not dispatcher.asyncio_based:
+        if not isinstance(dispatcher, AsyncDispatcher):
             raise RuntimeError(
                 "dispatcher must be an instance of AsyncDispatcher class"
             )
-        self._dispatcher: AsyncDispatcher = dispatcher
+        self._dispatcher = dispatcher
 
-    @property
-    def dispatcher(self) -> AsyncDispatcher:
-        return self._dispatcher
+    def session(self, sid: Hashable):
+        return self.dispatcher.session(sid)
 
-    async def disconnect(self, sid: str | UUID) -> None:
+    async def disconnect(self, sid: str | UUID) -> None:  # ty: ignore[invalid-method-override]
         if isinstance(sid, str):
             sid = UUID(sid)
-        await self._dispatcher.disconnect(sid)
+        await self.dispatcher.disconnect(sid)
 
-    async def trigger_event(self, event: str, *args, **kwargs):
-        """Dispatch an event to the correct handler method.
-
-        :param event: The name of the event to handle.
-        """
-        handler = self._get_handler(event)
-        if handler:
-            return await handler(*args, **kwargs)
-        raise UnknownEvent
-
-    async def emit(
+    async def emit(  # ty: ignore[invalid-method-override]
             self,
             event: str,
             data: DataType = EMPTY,
@@ -150,6 +165,6 @@ class AsyncEventHandler(EventHandler):
         if isinstance(namespace, str):
             namespace = namespace.strip("/")
         namespace = namespace or self.namespace
-        room = to or room
-        resp = await self._dispatcher.emit(event, data, to, room, namespace, ttl, **kwargs)
+        room = to.hex if to is not None else room
+        resp = await self.dispatcher.emit(event, data, to, room, namespace, ttl, **kwargs)
         return resp

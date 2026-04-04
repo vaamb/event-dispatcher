@@ -36,11 +36,11 @@ class InMemoryDispatcher(Dispatcher):
     def _publish(
             self,
             namespace: str,
-            payload: dict,
+            payload: bytes | bytearray,
             ttl: int | None = None,
             timeout: int | float | None = None,
-    ) -> int:
-        return self.pubsub.publish(namespace, payload)
+    ) -> None:
+        self.pubsub.publish(namespace, payload)
 
     def _listen(self):
         self.pubsub.subscribe(self.namespace)

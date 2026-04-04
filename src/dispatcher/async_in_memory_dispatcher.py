@@ -34,11 +34,11 @@ class AsyncInMemoryDispatcher(AsyncDispatcher):
     async def _publish(
             self,
             namespace: str,
-            payload: dict,
+            payload: bytes | bytearray,
             ttl: int | None = None,
             timeout: int | float | None = None,
-    ) -> int:
-        return await self.pubsub.publish(namespace, payload)
+    ) -> None:
+        await self.pubsub.publish(namespace, payload)
 
     async def _listen(self):
         self.pubsub.subscribe(self.namespace)

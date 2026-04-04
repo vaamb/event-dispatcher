@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from asyncio import Queue
 import logging
-from typing import AsyncIterator
+from typing import AsyncGenerator
 
 from .ABC import AsyncDispatcher
 
@@ -10,8 +10,8 @@ try:
     import aio_pika
     import aiormq
 except ImportError:
-    aio_pika = None
-    aiormq = None
+    aio_pika = None  # ty: ignore[invalid-assignment]
+    aiormq = None  # ty: ignore[invalid-assignment]
 
 
 class AsyncAMQPDispatcher(AsyncDispatcher):
@@ -35,10 +35,10 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
             namespace: str = "event_dispatcher",
             url: str = "amqp://guest:guest@localhost:5672//",
             parent_logger: logging.Logger | None = None,
-            connection_options: dict = None,
-            exchange_options: dict = None,
-            queue_options: dict = None,
-            publisher_options: dict = None,
+            connection_options: dict | None = None,
+            exchange_options: dict | None = None,
+            queue_options: dict | None = None,
+            publisher_options: dict | None = None,
             reconnection: bool = True,
             debug: bool = False,
     ) -> None:
@@ -51,8 +51,8 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
         self.exchange_options: dict = exchange_options or {}
         self.queue_options: dict = queue_options or {}
         self.publisher_options: dict = publisher_options or {}
-        self._publisher_connection: "aio_pika.Connection" | None = None
-        self._listener_connection: "aio_pika.Connection" | None = None
+        self._publisher_connection: aio_pika.Connection | None = None
+        self._listener_connection: aio_pika.Connection | None = None
 
     async def _broker_reachable(self) -> bool:
         try:
@@ -67,35 +67,39 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
         else:
             return True
 
-    def _connection(self) -> "aio_pika.Connection":
-        return aio_pika.Connection(url=self.url, **self.connection_options)  # noqa
+    def _connection(self) -> aio_pika.Connection:
+        return aio_pika.Connection(url=self.url, **self.connection_options)  # ty: ignore[invalid-argument-type]
 
     @property
-    def publisher_connection(self) -> "aio_pika.Connection":
-        if self._publisher_connection is None:
-            self._publisher_connection = self._connection()
+    def publisher_connection(self) -> aio_pika.Connection:
+        connection = self._publisher_connection
+        if connection is None:
+            connection = self._connection()
+            self._publisher_connection = connection
 
             async def reset(*args, **kwargs) -> None:
-                self._publisher_connection.transport = None
+                connection.transport = None
 
-            self._publisher_connection.close_callbacks.add(reset)
-        return self._publisher_connection
+            connection.close_callbacks.add(reset)
+        return connection
 
     @property
-    def listener_connection(self) -> "aio_pika.Connection":
-        if self._listener_connection is None:
-            self._listener_connection = self._connection()
+    def listener_connection(self) -> aio_pika.Connection:
+        connection = self._listener_connection
+        if connection is None:
+            connection = self._connection()
+            self._listener_connection = connection
 
             async def reset(*args, **kwargs) -> None:
-                self._listener_connection.transport = None
+                connection.transport = None
 
-            self._listener_connection.close_callbacks.add(reset)
-        return self._listener_connection
+            connection.close_callbacks.add(reset)
+        return connection
 
     @staticmethod
     async def _ensure_connected(
-            connection: "aio_pika.Connection"
-    ) -> "aio_pika.Connection":
+            connection: aio_pika.Connection
+    ) -> aio_pika.Connection:
         if connection.transport is None:
             await connection.connect()
         return connection
@@ -110,8 +114,8 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
 
     async def _exchange(
             self,
-            channel: "aio_pika.Channel"
-    ) -> "aio_pika.Exchange":
+            channel: aio_pika.abc.AbstractChannel
+    ) -> aio_pika.abc.AbstractExchange:
         options = {**self.exchange_options}
         name = options.pop("name", "dispatcher")
         exchange = await channel.declare_exchange(name, **options)
@@ -119,9 +123,9 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
 
     async def _queue(
             self,
-            channel: "aio_pika.Channel",
-            exchange: "aio_pika.Exchange",
-    ) -> "aio_pika.Queue":
+            channel: aio_pika.abc.AbstractChannel,
+            exchange: aio_pika.abc.AbstractExchange,
+    ) -> aio_pika.abc.AbstractQueue:
         options = {**self.queue_options}
         name = options.pop("name", self.namespace)
         extra_routing_keys = options.pop("extra_routing_keys", [])
@@ -138,7 +142,7 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
     async def _publish(
             self,
             namespace: str,
-            payload: bytes,
+            payload: bytes | bytearray,
             ttl: int | None = None,
             timeout: int | float | None = None,
     ) -> None:
@@ -148,7 +152,7 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
                 exchange = await self._exchange(channel)
                 await exchange.publish(
                     aio_pika.Message(
-                        body=payload,
+                        body=bytes(payload),
                         delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
                         expiration=ttl,
                         content_type='application/binary', content_encoding='binary'
@@ -165,26 +169,26 @@ class AsyncAMQPDispatcher(AsyncDispatcher):
             await self._clear_connections()
             raise ConnectionError("Failed to publish payload")
 
-    async def _listen(self) -> AsyncIterator[bytes]:
+    async def _listen(self) -> AsyncGenerator[bytes, None]:
         await self._ensure_connected(self.listener_connection)
         message_queue = Queue()
 
         async def end_listening(*args, **kwargs):
             await message_queue.put(None)
 
-        async def on_message(message: "aio_pika.IncomingMessage") -> None:
+        async def on_message(message: aio_pika.abc.AbstractIncomingMessage) -> None:
             await message_queue.put(message)
 
         self.listener_connection.close_callbacks.add(end_listening)
 
         async with self.listener_connection.channel() as channel:
             exchange = await self._exchange(channel)
-            listener_queue: aio_pika.Queue = await self._queue(channel, exchange)
+            listener_queue: aio_pika.abc.AbstractQueue = await self._queue(channel, exchange)
             await listener_queue.consume(on_message)
 
             while self.running:
                 try:
-                    message: aio_pika.IncomingMessage = await message_queue.get()
+                    message: aio_pika.abc.AbstractIncomingMessage = await message_queue.get()
                     if message is None:
                         raise ConnectionError("Connection with the broker closed.")
                     await message.ack()

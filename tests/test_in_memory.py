@@ -508,7 +508,7 @@ class TestAsyncInMemoryDispatcher:
         assert len(dispatcher2.rooms) == 2
 
         # Send to dispatcher2 only
-        await dispatcher1.emit(TEST_EVENT, {"test": "data5"}, room=dispatcher2.host_uid)
+        await dispatcher1.emit(TEST_EVENT, {"test": "data5"}, to=dispatcher2.host_uid)
         await asyncio.sleep(0.2)  # Give them some time to process
         assert counter1 == 3
         assert len(dispatcher1.rooms) == 2
