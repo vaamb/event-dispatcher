@@ -9,8 +9,10 @@ import logging
 from threading import Event, RLock, Thread
 import sys
 import time
+import typing as t
 from typing import (
-    AsyncGenerator, Hashable, Iterator, Literal, TYPE_CHECKING, TypeAlias, TypedDict)
+    AsyncGenerator, Generic, Hashable, Iterator, Literal, overload, TypeAlias,
+    TypedDict, TypeVar)
 import uuid
 from uuid import UUID
 
@@ -19,12 +21,13 @@ from .exceptions import StopEvent, UnknownEvent
 from .serializer import Serializer
 
 
-if TYPE_CHECKING:
-    from .event_handler import AsyncEventHandler, EventHandler
+if t.TYPE_CHECKING:
+    from .event_handler import AsyncEventHandler, BaseEventHandler, EventHandler
 
 
 EmptyType = Literal["__EMPTY__"]
 DataType: TypeAlias = bytes | bytearray | dict | list | str | tuple | None | EmptyType
+EventHandlerT = TypeVar("EventHandlerT", bound="BaseEventHandler")
 
 
 class PayloadDict(TypedDict):
@@ -41,7 +44,7 @@ EMPTY_UUID = UUID(int=0)
 context = ContextVarWrapper()
 
 
-class BaseDispatcher(ABC):
+class BaseDispatcher(ABC, Generic[EventHandlerT]):
     asyncio_based: bool
     _PAYLOAD_SEPARATOR: bytes = b"\x1d\x1d"
     _DATA_OBJECT: bytes = b"\x31"  # 1
@@ -75,7 +78,7 @@ class BaseDispatcher(ABC):
         self.rooms: set[str] = {self.host_uid.hex}
 
         # Event handling
-        self.event_handlers: set[EventHandler] = set()
+        self.event_handlers: set[EventHandlerT] = set()
         self.handlers: dict[str, tuple[Callable, bool]] = {}
         self._fallback: tuple [Callable, bool] | None = None
         self._sessions: dict = {}
@@ -171,7 +174,7 @@ class BaseDispatcher(ABC):
 
     # Event handling
     @abstractmethod
-    def _get_event_handlers(self) -> set[EventHandler]:
+    def _get_event_handlers(self) -> set[EventHandlerT]:
         ...
 
     def _get_event_handler(self, event: str) -> tuple[Callable, bool]:
@@ -230,7 +233,7 @@ class BaseDispatcher(ABC):
             self.rooms.remove(room)
 
 
-class Dispatcher(BaseDispatcher, ABC):
+class Dispatcher(BaseDispatcher["EventHandler"], ABC):
     asyncio_based: bool = False
 
     def __init__(
@@ -480,6 +483,10 @@ class Dispatcher(BaseDispatcher, ABC):
         with self._event_handlers_lock:
             self.event_handlers.add(event_handler)
 
+    @overload
+    def on(self, event: str) -> Callable[[Callable], Callable]: ...
+    @overload
+    def on(self, event: str, handler: Callable) -> None: ...
     def on(self, event: str, handler: Callable | None = None) -> Callable | None:
         """Register an event handler
 
@@ -729,7 +736,7 @@ class Dispatcher(BaseDispatcher, ABC):
             self._shutdown_event.clear()
 
 
-class AsyncDispatcher(BaseDispatcher, ABC):
+class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
     asyncio_based = True
 
     def __init__(
@@ -805,7 +812,7 @@ class AsyncDispatcher(BaseDispatcher, ABC):
         await self._stop_tasks()
 
     # Events triggering
-    def _get_event_handlers(self) -> set[EventHandler]:
+    def _get_event_handlers(self) -> set[AsyncEventHandler]:
         return self.event_handlers
 
     async def _trigger_event(
@@ -982,6 +989,10 @@ class AsyncDispatcher(BaseDispatcher, ABC):
         event_handler._set_dispatcher(self)
         self.event_handlers.add(event_handler)
 
+    @overload
+    def on(self, event: str) -> Callable[[Callable], Callable]: ...
+    @overload
+    def on(self, event: str, handler: Callable) -> None: ...
     def on(self, event: str, handler: Callable | None = None) -> Callable | None:
         """Register an event handler
 
