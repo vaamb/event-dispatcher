@@ -1,9 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 — April 2026
 
-- Updated README with usage examples and installation instructions
+- Update README with usage examples and installation instructions
 - Fix repository URL in `pyproject.toml`
+- Add `BaseEventHandler`; rework `{Async}EventHandler`
+- Rework `{Async}RedisDispatcher`
+- Add `ty` type checking to the QC pipeline
 
 ---
 
