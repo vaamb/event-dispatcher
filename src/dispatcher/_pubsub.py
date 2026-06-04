@@ -105,7 +105,7 @@ class BaseBroker(Generic[PubSubT]):
     def unlink(self, client: PubSubT) -> None:
         self.clients.discard(client)
         if not self.clients:
-            self.__class__._brokers = {  # ty: ignore[invalid-assignment]
+            self.__class__._brokers = {
                 k: v for k, v in self.__class__._brokers.items() if v is not self
             }
 

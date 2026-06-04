@@ -149,7 +149,7 @@ class KombuDispatcher(Dispatcher):
                 with self.listener_connection.SimpleQueue(listener_queue) as q:
                     message: kombu.Message = q.get(block=True, timeout=60)
                     message.ack()
-                    yield message.body
+                    yield message.body  # ty: ignore[invalid-yield]
             except queue.Empty:
                 continue
             except Exception as e:  # noqa
