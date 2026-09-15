@@ -399,7 +399,12 @@ class Dispatcher(BaseDispatcher["EventHandler"], ABC):
             try:
                 self.logger.info("Waiting for messages")
                 for payload in self._listen():
-                    message: PayloadDict = self._parse_payload(payload)
+                    try:
+                        message: PayloadDict = self._parse_payload(payload)
+                    except Exception as e:
+                        self.logger.error(
+                            f"Error while parsing payload: {e}", exc_info=e)
+                        continue
                     event: str = message["event"]
                     self.logger.debug(f"Received event '{event}'")
                     room: str = message["room"]
@@ -906,7 +911,12 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
             try:
                 self.logger.info("Waiting for messages")
                 async for payload in self._listen():
-                    message: PayloadDict = self._parse_payload(payload)
+                    try:
+                        message: PayloadDict = self._parse_payload(payload)
+                    except Exception as e:
+                        self.logger.error(
+                            f"Error while parsing payload: {e}", exc_info=e)
+                        continue
                     event: str = message["event"]
                     self.logger.debug(f"Received event '{event}'")
                     room: str = message["room"]
