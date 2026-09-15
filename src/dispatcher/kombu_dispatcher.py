@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import queue
 import logging
+import typing as t
 from typing import Iterator
+
+if t.TYPE_CHECKING:
+    import kombu
 
 try:
     import kombu
