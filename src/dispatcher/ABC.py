@@ -1133,7 +1133,14 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
         return task
 
     async def _stop_tasks(self) -> None:
-        for task in self._tasks.values():
+        # The main-loop task stops itself on a stop signal: it must neither be
+        # cancelled nor awaited from within
+        current_task = asyncio.current_task()
+        tasks = [
+            task for task in self._tasks.values()
+            if task is not current_task
+        ]
+        for task in tasks:
             task.cancel()
         # Wait for the tasks to be cancelled
         if sys.version_info < (3, 12):
@@ -1141,11 +1148,11 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
             #  to propagate `CancelledError` when a pending `queue.get()` is about
             #  to complete.
             await asyncio.sleep(0)  # let cancelled tasks start unwinding
-            pending = [t for t in self._tasks.values() if not t.done()]
+            pending = [task for task in tasks if not task.done()]
             if pending:
                 await asyncio.wait(pending, timeout=5.0)
         else:
-            await asyncio.gather(*self._tasks.values(), return_exceptions=True)
+            await asyncio.gather(*tasks, return_exceptions=True)
         await self._cleanup_tasks()
 
     async def _cleanup_tasks(self) -> None:
