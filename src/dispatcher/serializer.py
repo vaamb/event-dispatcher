@@ -11,7 +11,6 @@ try:
 except ImportError:
     warnings.warn("The dispatcher could be faster if orjson was installed")
 
-    orjson = None  # ty: ignore[invalid-assignment]
     import json
 
     def _serializer(o) -> str:

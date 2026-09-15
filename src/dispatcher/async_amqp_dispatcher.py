@@ -2,16 +2,18 @@ from __future__ import annotations
 
 from asyncio import Queue
 import logging
+import typing as t
 from typing import AsyncGenerator
 
 from .ABC import AsyncDispatcher
 
+if t.TYPE_CHECKING:
+    import aio_pika
+
 try:
     import aio_pika
-    import aiormq
 except ImportError:
     aio_pika = None  # ty: ignore[invalid-assignment]
-    aiormq = None  # ty: ignore[invalid-assignment]
 
 
 class AsyncAMQPDispatcher(AsyncDispatcher):

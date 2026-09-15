@@ -18,7 +18,7 @@ except ImportError:
         from aioredis.exceptions import RedisError  # ty: ignore[unresolved-import]
     except ImportError:
         aioredis = None  # ty: ignore[conflicting-declarations]
-        RedisError = Exception  # ty: ignore[conflicting-declarations]
+        RedisError = Exception  # ty: ignore[invalid-assignment]
 
 
 class AsyncRedisDispatcher(AsyncDispatcher):
