@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import queue
 import logging
+from threading import Lock
 import typing as t
 from typing import Iterator
 
@@ -57,6 +58,7 @@ class KombuDispatcher(Dispatcher):
         self.publisher_options: dict = publisher_options or {}
         self._publisher_connection: kombu.Connection | None = None
         self._listener_connection: kombu.Connection | None = None
+        self._connections_lock = Lock()
 
     def _broker_reachable(self) -> bool:
         try:
@@ -84,6 +86,20 @@ class KombuDispatcher(Dispatcher):
         if self._listener_connection is None:
             self._listener_connection = self._connection()
         return self._listener_connection
+
+    def _clear_connections(self) -> None:
+        # `stop()` runs `_handle_stop_signal()` from both the calling thread and
+        # the listener thread (via the stop signal). py-amqp connections are not
+        # thread-safe, so make sure each one is closed exactly once.
+        with self._connections_lock:
+            publisher_connection = self._publisher_connection
+            listener_connection = self._listener_connection
+            self._publisher_connection = None
+            self._listener_connection = None
+        if publisher_connection is not None:
+            publisher_connection.close()
+        if listener_connection is not None:
+            listener_connection.close()
 
     def _channel(self, connection: kombu.Connection) -> kombu.connection.Channel:
         retry = 1
@@ -148,22 +164,23 @@ class KombuDispatcher(Dispatcher):
     def _listen(self) -> Iterator[bytes]:
         self.listener_connection.connect()  # Make sure the connection is connected
         listener_queue = self._queue()
-        while self.running:
-            try:
-                with self.listener_connection.SimpleQueue(listener_queue) as q:
-                    message: kombu.Message = q.get(block=True, timeout=60)
+        with self.listener_connection.SimpleQueue(listener_queue) as q:
+            while self.running:
+                try:
+                    # Short timeout so `stop()` is noticed even when the stop
+                    # signal was consumed by another dispatcher on the queue
+                    message: kombu.Message = q.get(block=True, timeout=1)
                     message.ack()
                     yield message.body  # ty: ignore[invalid-yield]
-            except queue.Empty:
-                continue
-            except Exception as e:  # noqa
-                self.logger.error(
-                    f"Encountered an exception while trying to listen to "
-                    f"messages. ERROR msg: `{e.__class__.__name__}: {e}`."
-                )
-                raise ConnectionError("Connection to broker lost")
+                except queue.Empty:
+                    continue
+                except Exception as e:  # noqa
+                    self.logger.error(
+                        f"Encountered an exception while trying to listen to "
+                        f"messages. ERROR msg: `{e.__class__.__name__}: {e}`."
+                    )
+                    raise ConnectionError("Connection to broker lost")
 
     def _handle_stop_signal(self, *args, **kwargs) -> None:
-        super()._handle_stop_signal(args, kwargs)
-        self.publisher_connection.close()
-        self.listener_connection.close()
+        super()._handle_stop_signal(*args, **kwargs)
+        self._clear_connections()
