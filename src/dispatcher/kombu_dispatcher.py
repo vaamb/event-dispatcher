@@ -167,7 +167,9 @@ class KombuDispatcher(Dispatcher):
         with self.listener_connection.SimpleQueue(listener_queue) as q:
             while self.running:
                 try:
-                    message: kombu.Message = q.get(block=True, timeout=60)
+                    # Short timeout so `stop()` is noticed even when the stop
+                    # signal was consumed by another dispatcher on the queue
+                    message: kombu.Message = q.get(block=True, timeout=1)
                     message.ack()
                     yield message.body  # ty: ignore[invalid-yield]
                 except queue.Empty:
