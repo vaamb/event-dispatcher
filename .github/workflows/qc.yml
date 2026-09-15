@@ -22,8 +22,11 @@ jobs:
       with:
         enable-cache: true
 
+    - name: Install dependencies
+      run: uv sync --group qc
+
     - name: Lint with ruff
-      run: uvx ruff check .
+      run: uv run ruff check .
 
   ty:
     runs-on: ubuntu-latest
@@ -37,7 +40,7 @@ jobs:
         enable-cache: true
 
     - name: Install dependencies
-      run: uv sync --extra test
+      run: uv sync --extra test --group qc
 
     - name: Type check with ty
-      run: uvx ty check src/
+      run: uv run ty check src/

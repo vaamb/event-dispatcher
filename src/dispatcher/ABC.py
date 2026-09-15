@@ -844,7 +844,7 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
             handler_args = (sid, *args) if need_sid else args
 
             # Call the handler (supports both sync and async handlers)
-            if asyncio.iscoroutinefunction(event_handler):
+            if inspect.iscoroutinefunction(event_handler):
                 try:
                     await event_handler(*handler_args)
                 except asyncio.CancelledError:
