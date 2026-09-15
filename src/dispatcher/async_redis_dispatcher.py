@@ -83,7 +83,7 @@ class AsyncRedisDispatcher(AsyncDispatcher):
 
     async def _broker_reachable(self) -> bool:
         try:
-            aioredis.Redis.from_url(self.redis_url, **self.redis_options)  # ty: ignore[unresolved-attribute]
+            await aioredis.Redis.from_url(self.redis_url, **self.redis_options)  # ty: ignore[unresolved-attribute]
         except RedisError as e:
             self.logger.debug(
                 f"Encountered an exception while trying to reach the broker. "
