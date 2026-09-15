@@ -446,7 +446,8 @@ class Dispatcher(BaseDispatcher["EventHandler"], ABC):
                     self._reconnection_loop()
                 else:
                     self.logger.warning("Connection lost, stopping")
-                    raise StopEvent
+                    self._handle_stop_signal()
+                    break
             except StopEvent:
                 self._handle_stop_signal()
                 break
@@ -958,7 +959,8 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
                     await self._reconnection_loop()
                 else:
                     self.logger.warning("Connection lost, stopping")
-                    raise StopEvent
+                    await self._handle_stop_signal()
+                    break
             except StopEvent:
                 await self._handle_stop_signal()
                 break
