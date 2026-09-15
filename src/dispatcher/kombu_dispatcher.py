@@ -164,20 +164,20 @@ class KombuDispatcher(Dispatcher):
     def _listen(self) -> Iterator[bytes]:
         self.listener_connection.connect()  # Make sure the connection is connected
         listener_queue = self._queue()
-        while self.running:
-            try:
-                with self.listener_connection.SimpleQueue(listener_queue) as q:
+        with self.listener_connection.SimpleQueue(listener_queue) as q:
+            while self.running:
+                try:
                     message: kombu.Message = q.get(block=True, timeout=60)
                     message.ack()
                     yield message.body  # ty: ignore[invalid-yield]
-            except queue.Empty:
-                continue
-            except Exception as e:  # noqa
-                self.logger.error(
-                    f"Encountered an exception while trying to listen to "
-                    f"messages. ERROR msg: `{e.__class__.__name__}: {e}`."
-                )
-                raise ConnectionError("Connection to broker lost")
+                except queue.Empty:
+                    continue
+                except Exception as e:  # noqa
+                    self.logger.error(
+                        f"Encountered an exception while trying to listen to "
+                        f"messages. ERROR msg: `{e.__class__.__name__}: {e}`."
+                    )
+                    raise ConnectionError("Connection to broker lost")
 
     def _handle_stop_signal(self, *args, **kwargs) -> None:
         super()._handle_stop_signal(*args, **kwargs)
