@@ -6,7 +6,7 @@ from asyncio import Task
 from collections.abc import Callable
 import inspect
 import logging
-from threading import Event, RLock, Thread
+from threading import current_thread, Event, RLock, Thread
 import sys
 import time
 import typing as t
@@ -620,11 +620,15 @@ class Dispatcher(BaseDispatcher["EventHandler"], ABC):
             thread.start()
             return thread
 
-    def _stop_threads(self, timeout: float | None = 0.1) -> None:
+    def _stop_threads(self, timeout: float | None = 2.0) -> None:
         with self._threads_lock:
-            for thread in self._threads.values():
-                thread.join(timeout=timeout)
+            threads = list(self._threads.values())
             self._threads.clear()
+        # Join outside the lock: a thread stopping itself on a stop signal
+        # needs it too, and it cannot join itself
+        for thread in threads:
+            if thread is not current_thread():
+                thread.join(timeout=timeout)
 
     def _cleanup_threads(self) -> None:
         """Clean up finished threads and optionally wait for running ones.
