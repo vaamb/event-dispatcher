@@ -436,21 +436,22 @@ class Dispatcher(BaseDispatcher["EventHandler"], ABC):
                 raise
 
     def _master_loop(self) -> None:
-        while self.running:
-            try:
-                self._listen_loop()
-            except ConnectionError:
-                # Try to reconnect if needed
-                if self.reconnection:
-                    self.logger.warning("Connection lost, will try to reconnect")
-                    self._reconnection_loop()
-                else:
-                    self.logger.warning("Connection lost, stopping")
-                    self._handle_stop_signal()
+        try:
+            while self.running:
+                try:
+                    self._listen_loop()
+                except ConnectionError:
+                    # Try to reconnect if needed
+                    if self.reconnection:
+                        self.logger.warning("Connection lost, will try to reconnect")
+                        self._reconnection_loop()
+                    else:
+                        self.logger.warning("Connection lost, stopping")
+                        break
+                except StopEvent:
                     break
-            except StopEvent:
-                self._handle_stop_signal()
-                break
+        finally:
+            self._handle_stop_signal()
 
     """
     API
@@ -953,21 +954,22 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
                 raise
 
     async def _master_loop(self) -> None:
-        while self.running:
-            try:
-                await self._listen_loop()
-            except ConnectionError:
-                # Try to reconnect if needed
-                if self.reconnection:
-                    self.logger.warning("Connection lost, will try to reconnect")
-                    await self._reconnection_loop()
-                else:
-                    self.logger.warning("Connection lost, stopping")
-                    await self._handle_stop_signal()
+        try:
+            while self.running:
+                try:
+                    await self._listen_loop()
+                except ConnectionError:
+                    # Try to reconnect if needed
+                    if self.reconnection:
+                        self.logger.warning("Connection lost, will try to reconnect")
+                        await self._reconnection_loop()
+                    else:
+                        self.logger.warning("Connection lost, stopping")
+                        break
+                except StopEvent:
                     break
-            except StopEvent:
-                await self._handle_stop_signal()
-                break
+        finally:
+            await self._handle_stop_signal()
 
     """
     API
