@@ -441,6 +441,9 @@ class Dispatcher(BaseDispatcher["EventHandler"], ABC):
                 try:
                     self._listen_loop()
                 except ConnectionError:
+                    if not self.running:
+                        # `stop()` interrupted the listening
+                        break
                     # Try to reconnect if needed
                     if self.reconnection:
                         self.logger.warning("Connection lost, will try to reconnect")
@@ -717,6 +720,8 @@ class Dispatcher(BaseDispatcher["EventHandler"], ABC):
 
         # Set shutdown flag to prevent new tasks
         self._shutdown_event.set()
+        # Clear running flag to break the `_master_loop`
+        self._running.clear()
 
         try:
             # Send stop signal to all rooms
@@ -962,6 +967,9 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
                 try:
                     await self._listen_loop()
                 except ConnectionError:
+                    if not self.running:
+                        # `stop()` interrupted the listening
+                        break
                     # Try to reconnect if needed
                     if self.reconnection:
                         self.logger.warning("Connection lost, will try to reconnect")
@@ -1240,6 +1248,8 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
 
         # Set shutdown flag to prevent new tasks
         self._shutdown_event.set()
+        # Clear running flag to break the `_master_loop`
+        self._running.clear()
 
         try:
             # Send stop signal to all rooms
