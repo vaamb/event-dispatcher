@@ -1,57 +1,94 @@
 # Changelog
 
+## Unreleased
+
+- Fix `AsyncRedisDispatcher._broker_reachable()` — `Redis.from_url()` was not
+  awaited (#57)
+- Payloads that fail to parse are now logged and skipped instead of crashing
+  the listening loop (#58)
+- `BaseDispatcher(reconnection=False)` now cleans up its resources when the
+  connection to the broker is lost (#60)
+- `Dispatcher._stop_threads()` and `AsyncDispatcher._stop_tasks()` no longer
+  try to join/cancel the thread/task they are called from (#62, #64)
+- Make resource cleanup more resilient when the main listening loop stops;
+  `stop()` now clears the running flag and waits for the listening loop to
+  exit (#65, #66)
+- `KombuDispatcher`: the listener thread owns the listener connection,
+  connections are closed exactly once, and publishing is serialized with a
+  lock as py-amqp connections are not thread-safe (#63, #67)
+- Add tests for `AsyncAMQPDispatcher` and `KombuDispatcher` against real
+  brokers; CI now provides RabbitMQ and Redis services (#61, #63)
+- Pin `ruff` and `ty` versions; fix the `ty` warnings they surfaced (#59)
+
+## 0.8.1 — July 2026
+
+- Bump `pytest` (#55)
+
 ## 0.8.0 — April 2026
 
-- Update README with usage examples and installation instructions
-- Fix repository URL in `pyproject.toml`
-- Add `BaseEventHandler`; rework `{Async}EventHandler`
-- Rework `{Async}RedisDispatcher`
-- Add `ty` type checking to the QC pipeline
+- Update README with usage examples and installation instructions (#51)
+- Fix repository URL in `pyproject.toml` (#50)
+- Add `BaseEventHandler`; rework `{Async}EventHandler` (#53)
+- Rework `{Async}RedisDispatcher` (#53)
+- Add `ty` type checking to the QC pipeline (#53)
 
 ---
 
 ## 0.7.1 — February 2026
 
-- Fix a race condition arising in Python < 3.12 in `AsyncDispatcher`
-- Add back Python 3.11 to the test matrix
+- Fix a race condition arising in Python < 3.12 in `AsyncDispatcher` (#48)
+- Add back Python 3.11 to the test matrix (#48)
 
 ## 0.7.0 — February 2026
 
 - Enforce ABC on `PubSub`, `AsyncPubSub`, and their brokers — misuse raises
-  at class-definition time rather than at runtime
-- Enforce ABC on `BaseDispatcher` subclasses
-- Improve type safety throughout
+  at class-definition time rather than at runtime (#46)
+- Enforce ABC on `BaseDispatcher` subclasses (#40)
+- Improve type safety throughout (#40)
 - Optimise `{Async}Dispatcher._trigger_event()` — `need_sid` now computed once
-  at handler registration rather than on every event
-- `AsyncDispatcher.connect()` now raises if the dispatcher is already connected
-- Remove `EventHandler.__hash__()` and `__eq__()` — their presence was misleading
+  at handler registration rather than on every event (#45)
+- `AsyncDispatcher.connect()` now raises if the dispatcher is already connected (#42)
+- Remove `EventHandler.__hash__()` and `__eq__()` — their presence was misleading (#41)
 
 ## 0.6.1 — December 2025
 
 - `reconnection` and `debug` options promoted to `BaseDispatcher` — available
-  to all subclasses
-- Add a `debug` flag; exception tracebacks are only logged when it is set
+  to all subclasses (#38)
+- Add a `debug` flag; exception tracebacks are only logged when it is set (#36)
 
 ## 0.6.0 — December 2025
 
-- `{Async}InMemoryDispatcher` can now publish to any available namespace
+- `{Async}InMemoryDispatcher` can now publish to any available namespace (#34)
 - Empty payloads no longer serialized — a dedicated data flag is used instead,
-  avoiding ambiguity during deserialization
+  avoiding ambiguity during deserialization (#33)
 
 ## 0.5.1 — July 2025
 
-- Fix: `{Async}EventHandler` session identifier can now be any hashable object
-- Use a `str` sentinel for empty data to avoid serialization edge cases
-- `AsyncDispatcher.register_event_handler()` is now synchronous
+- Fix: `{Async}EventHandler` session identifier can now be any hashable object (#31)
+- Use a `str` sentinel for empty data to avoid serialization edge cases (#28, #30)
+- `AsyncDispatcher.register_event_handler()` is now synchronous (#29)
 
 ## 0.5.0 — July 2025
 
-- Drop support for CPython ≤ 3.9
-- Allow session identifiers to be any hashable object
+- Drop support for CPython ≤ 3.9 (#26)
+- Allow session identifiers to be any hashable object (#24)
 - `{Async}Dispatcher` listener distributes messages with `room=None` to all
-  connected dispatchers
+  connected dispatchers (#20)
 - Add fallback handler support
-- Add tests for rooms, background jobs, and `{Async}InMemoryDispatcher`
+- Add `BaseDispatcher` as the common base of `{Async}Dispatcher`; background
+  tasks can now run before the dispatcher is started, and stopping an
+  already-stopped dispatcher raises (#19)
+- Add a `timeout` parameter to `emit()` (#5)
+- `Dispatcher` now has a default namespace, used by `emit()` (#6)
+- Expose the underlying dispatcher on `{Async}EventHandler` via a `dispatcher`
+  property (#7)
+- Make AMQP-based dispatchers more robust to broker disconnection, and reduce
+  `AsyncAMQPDispatcher`'s idle workload (#2, #3, #4, #8, #9, #10)
+- Fix `bytes` payload encoding and parsing; `_encode_data()` / `_decode_data()`
+  are now symmetric (#11, #12, #13, #14, #15)
+- Add CI/CD pipeline (GitHub Actions); separate lint and test jobs (#16, #18)
+- Add tests for the abstract `{Async}Dispatcher`, rooms, background jobs, and
+  `{Async}InMemoryDispatcher` (#17, #21, #22, #23)
 
 ## 0.4.0 — March 2024
 
@@ -61,7 +98,6 @@
 - Allow a custom serializer to be passed at instantiation
 - Enable message acknowledgment in `AsyncAMQPDispatcher`
 - Improve `AsyncAMQPDispatcher` resiliency under broker disconnection
-- Add CI/CD pipeline (GitHub Actions); separate lint and test jobs
 
 ## 0.3.0 — October 2023
 
@@ -81,7 +117,7 @@
 
 ## 0.2.0 — July 2023
 
-- Improve broker disconnection handling and reconnection logic
+- Improve broker disconnection handling and reconnection logic (#1)
 - Use regular (non-robust) connections for `aio-pika` and `kombu` backends
 - Remove default queue expiration time and message TTL
 - Expose `Serializer` in the package namespace
