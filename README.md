@@ -1,6 +1,12 @@
 event-dispatcher
 ================
 
+[![Test](https://github.com/vaamb/event-dispatcher/actions/workflows/test.yml/badge.svg)](https://github.com/vaamb/event-dispatcher/actions/workflows/test.yml)
+[![Quality control](https://github.com/vaamb/event-dispatcher/actions/workflows/qc.yml/badge.svg)](https://github.com/vaamb/event-dispatcher/actions/workflows/qc.yml)
+[![Latest tag](https://img.shields.io/github/v/tag/vaamb/event-dispatcher?label=version)](https://github.com/vaamb/event-dispatcher/tags)
+![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 A broker-agnostic, Socket.IO-inspired event dispatcher for Python 3.11+.
 Supports both synchronous and asynchronous usage, with pluggable backends
 for in-memory, Redis, RabbitMQ (via Kombu or aio-pika), and any custom broker.
@@ -114,7 +120,7 @@ Installation
 
 ```bash
 pip install event-dispatcher
-pip3 install git+https://github.com/vaamb/event-dispatcher.git@0.7.1
+pip3 install git+https://github.com/vaamb/event-dispatcher.git@0.9.0
 ```
 
 Optional backend dependencies:
@@ -130,5 +136,5 @@ pip install aio-pika       # AsyncAMQPDispatcher
 Status
 ------
 
-Active. `v0.7.1`. Used in production as part of the gaia-ouranos ecosystem.
+Active. `v0.9.0`. Used in production as part of the gaia-ouranos ecosystem.
 Python 3.11–3.14 supported, tested in CI across all versions.
