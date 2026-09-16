@@ -1,23 +1,30 @@
+from functools import cache
 import socket
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 import pytest
 
 
-RABBITMQ_HOST = "localhost"
-RABBITMQ_PORT = 5672
-RABBITMQ_URL = f"amqp://guest:guest@{RABBITMQ_HOST}:{RABBITMQ_PORT}//"
+RABBITMQ_URL = "amqp://guest:guest@localhost:5672//"
+REDIS_URL = "redis://localhost:6379/0"
 
 
-@pytest.fixture(scope="session")
-def rabbitmq_url() -> str:
-    """Skip the requesting tests when no RabbitMQ broker is listening locally."""
+@cache
+def _is_listening(host: str, port: int) -> bool:
     try:
-        with socket.create_connection((RABBITMQ_HOST, RABBITMQ_PORT), timeout=1):
-            pass
+        with socket.create_connection((host, port), timeout=1):
+            return True
     except OSError:
-        pytest.skip(f"No RabbitMQ broker reachable at {RABBITMQ_HOST}:{RABBITMQ_PORT}")
-    return RABBITMQ_URL
+        return False
+
+
+def require_broker(url: str) -> None:
+    """Skip the current test when no broker is listening at `url`."""
+    parts = urlsplit(url)
+    assert parts.hostname is not None and parts.port is not None
+    if not _is_listening(parts.hostname, parts.port):
+        pytest.skip(f"No broker reachable at {parts.hostname}:{parts.port}")
 
 
 @pytest.fixture

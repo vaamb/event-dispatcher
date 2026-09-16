@@ -9,6 +9,7 @@ from .event_handler import AsyncEventHandler, EventHandler
 from .exceptions import StopEvent, UnknownEvent
 from .in_memory_dispatcher import InMemoryDispatcher
 from .kombu_dispatcher import KombuDispatcher
+from .redis_dispatcher import RedisDispatcher
 from .serializer import Serializer
 from .utils import RegisterEventMixin
 
@@ -29,6 +30,7 @@ __all__ = [
     "UnknownEvent",
     "InMemoryDispatcher",
     "KombuDispatcher",
+    "RedisDispatcher",
     "Serializer",
     "RegisterEventMixin",
 ]

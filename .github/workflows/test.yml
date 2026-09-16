@@ -23,6 +23,9 @@ jobs:
       rabbitmq:
         image: rabbitmq:3
         ports: ["5672:5672"]
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
 
     steps:
     - name: Checkout code
