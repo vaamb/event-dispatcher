@@ -713,6 +713,19 @@ class Dispatcher(BaseDispatcher["EventHandler"], ABC):
         else:
             self.start_background_task(target=wrap, task_name="dispatcher-main_loop")
 
+    def _wait_main_loop(self, timeout: float) -> None:
+        """Wait for the main loop to exit, interrupting it if it takes too long."""
+        thread = self._main_loop_thread
+        if thread is None or thread is current_thread():
+            # Not started yet, or `stop()` was called from an event handler:
+            # the `_master_loop` loop will exit by itself once the handler returns
+            return
+        assert thread is not None
+        thread.join(timeout)
+        if thread.is_alive():
+            self.logger.warning(
+                f"The main loop did not exit within {timeout} s")
+
     def stop(self) -> None:
         """Stop the dispatcher and clean up resources."""
         if not self.running:
@@ -1243,6 +1256,22 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
             await wrap()
         else:
             await self.start_background_task(target=wrap, task_name="dispatcher-main_loop")
+
+    async def _wait_main_loop(self, timeout: float) -> None:
+        """Wait for the main loop to exit on its own.
+
+        A loop still pending afterwards is cancelled by `_stop_tasks()`.
+        """
+        task = self._main_loop_task
+        if task is None or task is asyncio.current_task():
+            # Not started yet, or `stop()` was called from an event handler:
+            # the `_master_loop` loop will exit by itself once the handler returns
+            return
+        assert task is not None
+        _, pending = await asyncio.wait((task, ), timeout=timeout)
+        if pending:
+            self.logger.warning(
+                f"The main loop did not exit within {timeout} s")
 
     async def stop(self) -> None:
         """Stop the dispatcher and clean up resources."""
