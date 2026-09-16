@@ -257,8 +257,8 @@ class TestDispatcher(TestCase):
 
 
 @pytest.mark.asyncio
-class TestAsyncDispatcher(TestCase):
-    def setUp(self):
+class TestAsyncDispatcher:
+    def setup_method(self):
         MockAsyncDispatcher._broker_reachable.reset_mock()
         MockAsyncDispatcher._publish.reset_mock()
         MockAsyncDispatcher._listen.reset_mock()
