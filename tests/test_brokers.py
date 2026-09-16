@@ -1,21 +1,23 @@
-"""Tests for the sync dispatchers backed by a real message broker.
+"""Tests for the sync dispatchers against their message broker.
 
 The contract tests run against every backend (see `backend`), each one
 providing the few pieces that differ: how to build a dispatcher, how to
 simulate a dropped connection and which internals show connections were
-released. Delivery semantics differ between a RabbitMQ queue and a Redis
-channel, so those tests are backend-specific (see the end of the module).
+released. The in-memory backend has no network to lose, so the tests about
+reaching or losing the broker are restricted to `REAL_BROKERS`. Delivery
+semantics differ between a RabbitMQ queue and a pub/sub channel, so those
+tests are backend-specific (see the end of the module).
 """
-from contextlib import contextmanager
 import socket
-from threading import Event
 import time
 
 import pytest
 
-from dispatcher import KombuDispatcher, RedisDispatcher
+from dispatcher import InMemoryDispatcher, KombuDispatcher, RedisDispatcher
 
-from conftest import RABBITMQ_URL, REDIS_URL, require_broker
+from conftest import (
+    RABBITMQ_URL, REDIS_URL, require_broker, running, wait_until,
+    wait_until_listening)
 from handlers import PingPong
 
 
@@ -94,60 +96,54 @@ class RedisBackend:
         assert dispatcher._redis is None
 
 
-@pytest.fixture(params=[KombuBackend, RedisBackend], ids=["kombu", "redis"])
-def backend(request) -> type[KombuBackend | RedisBackend]:
+class InMemoryBackend:
+    url = None  # No broker to reach
+
+    @staticmethod
+    def make_dispatcher(
+            namespace: str,
+            url: None,
+            handler: PingPong | None = None,
+            **kwargs,
+    ) -> InMemoryDispatcher:
+        dispatcher = InMemoryDispatcher(namespace, **kwargs)
+        if handler is not None:
+            dispatcher.register_event_handler(handler)
+        return dispatcher
+
+    @staticmethod
+    def assert_connections_open(dispatcher: InMemoryDispatcher) -> None:
+        assert dispatcher.pubsub in dispatcher.pubsub.broker.clients
+
+    @staticmethod
+    def assert_connections_released(dispatcher: InMemoryDispatcher) -> None:
+        # `stop()` unlinks the pubsub from its broker
+        assert dispatcher.pubsub not in dispatcher.pubsub.broker.clients
+
+
+REAL_BROKERS = [KombuBackend, RedisBackend]
+Backend = type[KombuBackend | RedisBackend | InMemoryBackend]
+
+
+@pytest.fixture(
+    params=[*REAL_BROKERS, InMemoryBackend], ids=["kombu", "redis", "in_memory"])
+def backend(request) -> Backend:
     return request.param
 
 
 @pytest.fixture
-def url(backend) -> str:
+def url(backend) -> str | None:
     """The backend's broker URL, skipping the test when it is not running."""
-    require_broker(backend.url)
+    if backend.url is not None:
+        require_broker(backend.url)
     return backend.url
 
 
-def wait_until(predicate, timeout: float = 2.0) -> None:
-    deadline = time.monotonic() + timeout
-    while not predicate():
-        if time.monotonic() > deadline:
-            raise TimeoutError("Condition not met in time")
-        time.sleep(0.01)
+real_brokers_only = pytest.mark.parametrize(
+    "backend", REAL_BROKERS, ids=["kombu", "redis"], indirect=True)
 
 
-def wait_until_listening(dispatcher: KombuDispatcher | RedisDispatcher) -> None:
-    """Block until the dispatcher's queue is bound and consumed.
-
-    `start(block=False)` returns before `_listen()` has declared and bound the
-    queue (or subscribed to the channel), and messages sent to a namespace no
-    one listens to yet are silently dropped. So probe the dispatcher with
-    messages addressed to itself until one comes back.
-    """
-    wait_until(lambda: dispatcher.connected)
-    probe_received = Event()
-
-    @dispatcher.on("probe")
-    def on_probe() -> None:
-        probe_received.set()
-
-    deadline = time.monotonic() + 2.0
-    while not probe_received.is_set():
-        if time.monotonic() > deadline:
-            raise TimeoutError("Dispatcher did not start listening in time")
-        dispatcher.emit("probe", to=dispatcher.host_uid)
-        time.sleep(0.05)
-
-
-@contextmanager
-def running(dispatcher: KombuDispatcher | RedisDispatcher):
-    dispatcher.start(block=False)
-    wait_until_listening(dispatcher)
-    try:
-        yield dispatcher
-    finally:
-        if dispatcher.running:
-            dispatcher.stop()
-
-
+@real_brokers_only
 class TestBrokerConnection:
     def test_unreachable_broker(self, backend, namespace):
         dispatcher = backend.make_dispatcher(namespace, backend.unreachable_url)
@@ -166,6 +162,13 @@ class TestBrokerConnection:
 
         dispatcher._clear_connections()
 
+    def test_emit_without_broker_returns_false(self, backend, namespace):
+        dispatcher = backend.make_dispatcher(namespace, backend.unreachable_url)
+
+        assert dispatcher.emit("ping", {"key": "value"}) is False
+
+
+class TestDispatcher:
     def test_lifecycle(self, backend, namespace, url):
         handler = PingPong()
         dispatcher = backend.make_dispatcher(namespace, url, handler)
@@ -184,13 +187,6 @@ class TestBrokerConnection:
         # The broker connections are released, not just the flags
         backend.assert_connections_released(dispatcher)
 
-    def test_emit_without_broker_returns_false(self, backend, namespace):
-        dispatcher = backend.make_dispatcher(namespace, backend.unreachable_url)
-
-        assert dispatcher.emit("ping", {"key": "value"}) is False
-
-
-class TestMessaging:
     def test_ping_pong(self, backend, url):
         client_handler = PingPong(namespace="server")
         server_handler = PingPong(namespace="client")
@@ -208,7 +204,22 @@ class TestMessaging:
             assert sid == server.host_uid
             assert data == {"key": "value"}
 
+    def test_namespaces_are_isolated(self, backend, namespace, url):
+        handler = PingPong()
+        dispatcher = backend.make_dispatcher(namespace, url, handler)
+        emitter = backend.make_dispatcher("emitter", url)
 
+        with running(dispatcher):
+            emitter.emit("pong", "other namespace", namespace=f"{namespace}-other")
+            # The marker is sent second, so seeing it first means the event
+            # sent to the other namespace was not delivered
+            emitter.emit("pong", "marker", namespace=namespace)
+
+            sid, data = handler.expect("pong")
+            assert data == "marker"
+
+
+@real_brokers_only
 class TestConnectionLoss:
     def test_reconnects_after_connection_loss(self, backend, namespace, url):
         handler = PingPong()
@@ -288,11 +299,13 @@ class TestKombuQueues:
             assert sid == emitter.host_uid
 
 
-@pytest.mark.parametrize("backend", [RedisBackend], ids=["redis"], indirect=True)
-class TestRedisChannels:
+@pytest.mark.parametrize(
+    "backend", [RedisBackend, InMemoryBackend], ids=["redis", "in_memory"],
+    indirect=True)
+class TestPubSubChannels:
     def test_same_namespace_fans_out(self, backend, namespace, url):
-        """Two dispatchers on one namespace subscribe to the same Redis channel,
-        so every message is delivered to both of them (pub/sub semantics)."""
+        """Two dispatchers on one namespace subscribe to the same channel, so
+        every message is delivered to both of them (pub/sub semantics)."""
         handler1 = PingPong()
         handler2 = PingPong()
         dispatcher1 = backend.make_dispatcher(namespace, url, handler1)
@@ -309,6 +322,9 @@ class TestRedisChannels:
         # Each dispatcher also recorded its own `connect` and `disconnect`
         assert received == 2 * 4 + 2 * 2
 
+
+@pytest.mark.parametrize("backend", [RedisBackend], ids=["redis"], indirect=True)
+class TestRedisChannels:
     def test_custom_name_subscribes_to_both_channels(self, backend, namespace, url):
         """A dispatcher given a queue name listens on that channel on top of
         its namespace, like a named queue is also bound to the namespace."""

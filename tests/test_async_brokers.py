@@ -1,15 +1,18 @@
-"""Tests for the async dispatchers backed by a real message broker.
+"""Tests for the async dispatchers against their message broker.
 
 Async counterpart of `test_brokers.py`, see its docstring.
 """
 import asyncio
-from contextlib import asynccontextmanager
 
 import pytest
 
-from dispatcher import AsyncAMQPDispatcher, AsyncRedisDispatcher
+from dispatcher import (
+    AsyncAMQPDispatcher, AsyncInMemoryDispatcher, AsyncRedisDispatcher)
 
-from conftest import RABBITMQ_URL, REDIS_URL, require_broker
+from conftest import (
+    RABBITMQ_URL, REDIS_URL, require_broker, async_running as running,
+    async_wait_until as wait_until,
+    async_wait_until_listening as wait_until_listening)
 from handlers import AsyncPingPong
 
 
@@ -85,63 +88,54 @@ class RedisBackend:
         assert dispatcher._redis is None
 
 
-@pytest.fixture(params=[AMQPBackend, RedisBackend], ids=["amqp", "redis"])
-def backend(request) -> type[AMQPBackend | RedisBackend]:
+class InMemoryBackend:
+    url = None  # No broker to reach
+
+    @staticmethod
+    def make_dispatcher(
+            namespace: str,
+            url: None,
+            handler: AsyncPingPong | None = None,
+            **kwargs,
+    ) -> AsyncInMemoryDispatcher:
+        dispatcher = AsyncInMemoryDispatcher(namespace, **kwargs)
+        if handler is not None:
+            dispatcher.register_event_handler(handler)
+        return dispatcher
+
+    @staticmethod
+    def assert_connections_open(dispatcher: AsyncInMemoryDispatcher) -> None:
+        assert dispatcher.pubsub in dispatcher.pubsub.broker.clients
+
+    @staticmethod
+    def assert_connections_released(dispatcher: AsyncInMemoryDispatcher) -> None:
+        # `stop()` unlinks the pubsub from its broker
+        assert dispatcher.pubsub not in dispatcher.pubsub.broker.clients
+
+
+REAL_BROKERS = [AMQPBackend, RedisBackend]
+Backend = type[AMQPBackend | RedisBackend | InMemoryBackend]
+
+
+@pytest.fixture(
+    params=[*REAL_BROKERS, InMemoryBackend], ids=["amqp", "redis", "in_memory"])
+def backend(request) -> Backend:
     return request.param
 
 
 @pytest.fixture
-def url(backend) -> str:
+def url(backend) -> str | None:
     """The backend's broker URL, skipping the test when it is not running."""
-    require_broker(backend.url)
+    if backend.url is not None:
+        require_broker(backend.url)
     return backend.url
 
 
-async def wait_until(predicate, timeout: float = 2.0) -> None:
-    async def _poll() -> None:
-        while not predicate():
-            await asyncio.sleep(0.01)
-
-    await asyncio.wait_for(_poll(), timeout)
+real_brokers_only = pytest.mark.parametrize(
+    "backend", REAL_BROKERS, ids=["amqp", "redis"], indirect=True)
 
 
-async def wait_until_listening(
-        dispatcher: AsyncAMQPDispatcher | AsyncRedisDispatcher) -> None:
-    """Block until the dispatcher's queue is bound and consumed.
-
-    `start(block=False)` returns before `_listen()` has declared and bound the
-    queue (or subscribed to the channel), and messages sent to a namespace no
-    one listens to yet are silently dropped. So probe the dispatcher with
-    messages addressed to itself until one comes back.
-    """
-    # `_broker_reachable()` resets both connections, so emitting before
-    # `connect()` is done would close the listener connection under it
-    await wait_until(lambda: dispatcher.connected)
-    probe_received = asyncio.Event()
-
-    @dispatcher.on("probe")
-    async def on_probe() -> None:
-        probe_received.set()
-
-    async def _probe() -> None:
-        while not probe_received.is_set():
-            await dispatcher.emit("probe", to=dispatcher.host_uid)
-            await asyncio.sleep(0.05)
-
-    await asyncio.wait_for(_probe(), 2.0)
-
-
-@asynccontextmanager
-async def running(dispatcher: AsyncAMQPDispatcher | AsyncRedisDispatcher):
-    await dispatcher.start(block=False)
-    await wait_until_listening(dispatcher)
-    try:
-        yield dispatcher
-    finally:
-        if dispatcher.running:
-            await dispatcher.stop()
-
-
+@real_brokers_only
 class TestBrokerConnection:
     async def test_unreachable_broker(self, backend, namespace):
         dispatcher = backend.make_dispatcher(namespace, backend.unreachable_url)
@@ -160,6 +154,13 @@ class TestBrokerConnection:
 
         await dispatcher._clear_connections()
 
+    async def test_emit_without_broker_returns_false(self, backend, namespace):
+        dispatcher = backend.make_dispatcher(namespace, backend.unreachable_url)
+
+        assert await dispatcher.emit("ping", {"key": "value"}) is False
+
+
+class TestDispatcher:
     async def test_lifecycle(self, backend, namespace, url):
         handler = AsyncPingPong()
         dispatcher = backend.make_dispatcher(namespace, url, handler)
@@ -178,13 +179,6 @@ class TestBrokerConnection:
         # The broker connections are released, not just the flags
         backend.assert_connections_released(dispatcher)
 
-    async def test_emit_without_broker_returns_false(self, backend, namespace):
-        dispatcher = backend.make_dispatcher(namespace, backend.unreachable_url)
-
-        assert await dispatcher.emit("ping", {"key": "value"}) is False
-
-
-class TestMessaging:
     async def test_ping_pong(self, backend, url):
         client_handler = AsyncPingPong(namespace="server")
         server_handler = AsyncPingPong(namespace="client")
@@ -202,7 +196,23 @@ class TestMessaging:
             assert sid == server.host_uid
             assert data == {"key": "value"}
 
+    async def test_namespaces_are_isolated(self, backend, namespace, url):
+        handler = AsyncPingPong()
+        dispatcher = backend.make_dispatcher(namespace, url, handler)
+        emitter = backend.make_dispatcher("emitter", url)
 
+        async with running(dispatcher):
+            await emitter.emit(
+                "pong", "other namespace", namespace=f"{namespace}-other")
+            # The marker is sent second, so seeing it first means the event
+            # sent to the other namespace was not delivered
+            await emitter.emit("pong", "marker", namespace=namespace)
+
+            sid, data = await handler.expect("pong")
+            assert data == "marker"
+
+
+@real_brokers_only
 class TestConnectionLoss:
     async def test_reconnects_after_connection_loss(self, backend, namespace, url):
         handler = AsyncPingPong()
@@ -291,11 +301,13 @@ class TestAMQPQueues:
             assert sid == emitter.host_uid
 
 
-@pytest.mark.parametrize("backend", [RedisBackend], ids=["redis"], indirect=True)
-class TestRedisChannels:
+@pytest.mark.parametrize(
+    "backend", [RedisBackend, InMemoryBackend], ids=["redis", "in_memory"],
+    indirect=True)
+class TestPubSubChannels:
     async def test_same_namespace_fans_out(self, backend, namespace, url):
-        """Two dispatchers on one namespace subscribe to the same Redis channel,
-        so every message is delivered to both of them (pub/sub semantics)."""
+        """Two dispatchers on one namespace subscribe to the same channel, so
+        every message is delivered to both of them (pub/sub semantics)."""
         handler1 = AsyncPingPong()
         handler2 = AsyncPingPong()
         dispatcher1 = backend.make_dispatcher(namespace, url, handler1)
@@ -312,6 +324,9 @@ class TestRedisChannels:
         # Each dispatcher also recorded its own `connect` and `disconnect`
         assert received == 2 * 4 + 2 * 2
 
+
+@pytest.mark.parametrize("backend", [RedisBackend], ids=["redis"], indirect=True)
+class TestRedisChannels:
     async def test_custom_name_subscribes_to_both_channels(
             self, backend, namespace, url):
         """A dispatcher given a queue name listens on that channel on top of
