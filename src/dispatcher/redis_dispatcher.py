@@ -54,7 +54,7 @@ class RedisDispatcher(Dispatcher):
         self._publisher_lock = Lock()
 
     @property
-    def redis_client(self) -> redis.Redis:  # ty: ignore[unresolved-attribute]
+    def redis_client(self) -> redis.Redis:
         if self._redis is None:
             self._redis = redis.Redis.from_url(self.redis_url, **self.redis_options)
         return self._redis
