@@ -260,6 +260,7 @@ class Dispatcher(BaseDispatcher["EventHandler"], ABC):
         # Thread management
         self._threads: dict[str, Thread] = {}
         self._threads_lock = RLock()
+        self._main_loop_thread: Thread | None = None
         self._event_handlers_lock = RLock()
         self._sessions_lock = RLock()
 
@@ -436,6 +437,7 @@ class Dispatcher(BaseDispatcher["EventHandler"], ABC):
                 raise
 
     def _master_loop(self) -> None:
+        self._main_loop_thread = current_thread()
         try:
             while self.running:
                 try:
@@ -711,8 +713,28 @@ class Dispatcher(BaseDispatcher["EventHandler"], ABC):
         else:
             self.start_background_task(target=wrap, task_name="dispatcher-main_loop")
 
-    def stop(self) -> None:
-        """Stop the dispatcher and clean up resources."""
+    def _wait_main_loop(self, timeout: float) -> None:
+        """Wait for the main loop to exit, interrupting it if it takes too long."""
+        thread = self._main_loop_thread
+        if thread is None or thread is current_thread():
+            # Not started yet, or `stop()` was called from an event handler:
+            # the `_master_loop` loop will exit by itself once the handler returns
+            return
+        assert thread is not None
+        thread.join(timeout)
+        if thread.is_alive():
+            self.logger.warning(
+                f"The main loop did not exit within {timeout} s")
+
+    def stop(self, timeout: float = 2.0) -> None:
+        """Stop the dispatcher and clean up resources.
+
+        The main loop releases the broker resources itself as it exits, so
+        this only asks it to exit and waits for it.
+
+        :param timeout: How long to wait for the main loop to exit on its own
+                        before interrupting it.
+        """
         if not self.running:
             raise RuntimeError("Not running")
 
@@ -733,8 +755,10 @@ class Dispatcher(BaseDispatcher["EventHandler"], ABC):
                 ttl=15,
             )
 
-            # Handle broker disconnect, will clean up threads
-            self._handle_stop_signal()
+            self._wait_main_loop(timeout)
+            # The main loop should have already closed all threads when it stopped
+            # Doesn't cost much to be extra sure if it didn't happen in time
+            self._stop_threads(timeout)
 
             # Clear all handlers and sessions
             with self._event_handlers_lock:
@@ -783,6 +807,7 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
 
         # Task management
         self._tasks: dict[str, Task] = {}
+        self._main_loop_task: Task | None = None
 
     @abstractmethod
     async def _broker_reachable(self) -> bool:
@@ -963,6 +988,7 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
                 raise
 
     async def _master_loop(self) -> None:
+        self._main_loop_task = asyncio.current_task()
         try:
             while self.running:
                 try:
@@ -1240,8 +1266,31 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
         else:
             await self.start_background_task(target=wrap, task_name="dispatcher-main_loop")
 
-    async def stop(self) -> None:
-        """Stop the dispatcher and clean up resources."""
+    async def _wait_main_loop(self, timeout: float) -> None:
+        """Wait for the main loop to exit on its own.
+
+        A loop still pending afterwards is cancelled by `_stop_tasks()`.
+        """
+        task = self._main_loop_task
+        if task is None or task is asyncio.current_task():
+            # Not started yet, or `stop()` was called from an event handler:
+            # the `_master_loop` loop will exit by itself once the handler returns
+            return
+        assert task is not None
+        _, pending = await asyncio.wait((task, ), timeout=timeout)
+        if pending:
+            self.logger.warning(
+                f"The main loop did not exit within {timeout} s")
+
+    async def stop(self, timeout: float = 2.0) -> None:
+        """Stop the dispatcher and clean up resources.
+
+        The main loop releases the broker resources itself as it exits, so
+        this only asks it to exit and waits for it.
+
+        :param timeout: How long to wait for the main loop to exit on its own
+                        before cancelling it.
+        """
         if not self.running:
             raise RuntimeError("Not running")
 
@@ -1262,8 +1311,10 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
                 ttl=15,
             )
 
-            # Handle broker disconnect, will clean up threads
-            await self._handle_stop_signal()
+            await self._wait_main_loop(timeout)
+            # The main loop should have already closed all tasks when it stopped
+            # Doesn't cost much to be extra sure if it didn't happen in time
+            await self._stop_tasks()
 
             # Clear all handlers and sessions
             self.event_handlers.clear()
