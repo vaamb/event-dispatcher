@@ -724,7 +724,8 @@ class Dispatcher(BaseDispatcher["EventHandler"], ABC):
         self._running.clear()
 
         try:
-            # Send stop signal to all rooms
+            # Send stop signal to all rooms and wake the listener loop in case
+            # it is blocked waiting for a message
             self.emit(
                 STOP_SIGNAL,
                 to=self.host_uid,
@@ -1252,7 +1253,8 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
         self._running.clear()
 
         try:
-            # Send stop signal to all rooms
+            # Send stop signal to all rooms and wake the listener loop in case
+            # it is blocked waiting for a message
             await self.emit(
                 STOP_SIGNAL,
                 to=self.host_uid,
