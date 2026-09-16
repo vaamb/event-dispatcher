@@ -90,8 +90,9 @@ class KombuDispatcher(Dispatcher):
         return self._listener_connection
 
     def _clear_connections(self) -> None:
-        # Called by the main loop as it exits, so the listener connection is
-        # closed by the thread that was reading on it
+        # `stop()` runs `_handle_stop_signal()` from both the calling thread and
+        # the listener thread (via the stop signal), so make sure each
+        # connection is closed exactly once.
         with self._connections_lock:
             publisher_connection = self._publisher_connection
             listener_connection = self._listener_connection
@@ -102,6 +103,14 @@ class KombuDispatcher(Dispatcher):
                 publisher_connection.close()
         if listener_connection is not None:
             listener_connection.close()
+
+    def _interrupt_listening(self) -> None:
+        # Drop the socket without the AMQP close handshake, which would race
+        # with the main loop reading on it. The pending read fails, the main
+        # loop exits and releases the connection itself.
+        listener_connection = self._listener_connection
+        if listener_connection is not None:
+            listener_connection.collect()
 
     def _channel(self, connection: kombu.Connection) -> kombu.connection.Channel:
         retry = 1
