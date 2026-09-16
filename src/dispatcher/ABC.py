@@ -436,21 +436,28 @@ class Dispatcher(BaseDispatcher["EventHandler"], ABC):
                 raise
 
     def _master_loop(self) -> None:
-        while self.running:
-            try:
-                self._listen_loop()
-            except ConnectionError:
-                # Try to reconnect if needed
-                if self.reconnection:
-                    self.logger.warning("Connection lost, will try to reconnect")
-                    self._reconnection_loop()
-                else:
-                    self.logger.warning("Connection lost, stopping")
-                    self._handle_stop_signal()
+        try:
+            while self.running:
+                try:
+                    self._listen_loop()
+                except ConnectionError:
+                    if not self.running:
+                        # `stop()` interrupted the listening
+                        break
+                    # Try to reconnect if needed
+                    if self.reconnection:
+                        self.logger.warning("Connection lost, will try to reconnect")
+                        try:
+                            self._reconnection_loop()
+                        except StopEvent:
+                            break
+                    else:
+                        self.logger.warning("Connection lost, stopping")
+                        break
+                except StopEvent:
                     break
-            except StopEvent:
-                self._handle_stop_signal()
-                break
+        finally:
+            self._handle_stop_signal()
 
     """
     API
@@ -713,9 +720,12 @@ class Dispatcher(BaseDispatcher["EventHandler"], ABC):
 
         # Set shutdown flag to prevent new tasks
         self._shutdown_event.set()
+        # Clear running flag to break the `_master_loop`
+        self._running.clear()
 
         try:
-            # Send stop signal to all rooms
+            # Send stop signal to all rooms and wake the listener loop in case
+            # it is blocked waiting for a message
             self.emit(
                 STOP_SIGNAL,
                 to=self.host_uid,
@@ -953,21 +963,28 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
                 raise
 
     async def _master_loop(self) -> None:
-        while self.running:
-            try:
-                await self._listen_loop()
-            except ConnectionError:
-                # Try to reconnect if needed
-                if self.reconnection:
-                    self.logger.warning("Connection lost, will try to reconnect")
-                    await self._reconnection_loop()
-                else:
-                    self.logger.warning("Connection lost, stopping")
-                    await self._handle_stop_signal()
+        try:
+            while self.running:
+                try:
+                    await self._listen_loop()
+                except ConnectionError:
+                    if not self.running:
+                        # `stop()` interrupted the listening
+                        break
+                    # Try to reconnect if needed
+                    if self.reconnection:
+                        self.logger.warning("Connection lost, will try to reconnect")
+                        try:
+                            await self._reconnection_loop()
+                        except StopEvent:
+                            break
+                    else:
+                        self.logger.warning("Connection lost, stopping")
+                        break
+                except StopEvent:
                     break
-            except StopEvent:
-                await self._handle_stop_signal()
-                break
+        finally:
+            await self._handle_stop_signal()
 
     """
     API
@@ -1232,9 +1249,12 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
 
         # Set shutdown flag to prevent new tasks
         self._shutdown_event.set()
+        # Clear running flag to break the `_master_loop`
+        self._running.clear()
 
         try:
-            # Send stop signal to all rooms
+            # Send stop signal to all rooms and wake the listener loop in case
+            # it is blocked waiting for a message
             await self.emit(
                 STOP_SIGNAL,
                 to=self.host_uid,
