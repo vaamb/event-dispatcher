@@ -2,12 +2,19 @@ import asyncio
 import sys
 import time
 from unittest import TestCase
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import ANY, AsyncMock, Mock, patch
 import uuid
 
 import pytest
 
 from dispatcher.ABC import AsyncDispatcher, BaseDispatcher, Dispatcher, EMPTY
+from dispatcher.async_in_memory_dispatcher import AsyncInMemoryDispatcher
+from dispatcher.exceptions import StopEvent
+from dispatcher.in_memory_dispatcher import InMemoryDispatcher
+
+from conftest import (
+    async_running, async_wait_until, running, wait_until)
+from handlers import AsyncPingPong, PingPong
 
 
 class MockBaseDispatcher(BaseDispatcher):
@@ -177,6 +184,17 @@ class TestDispatcher(TestCase):
         result = dispatcher.emit(test_event, data=test_data, to=test_to)
         assert result is True
         dispatcher._publish.assert_called_once()
+        dispatcher._publish.reset_mock()
+
+        # Events go to the dispatcher's own namespace unless told otherwise
+        dispatcher.emit(test_event)
+        dispatcher._publish.assert_called_once_with(
+            dispatcher.namespace, ANY, None, None)
+        dispatcher._publish.reset_mock()
+
+        dispatcher.emit(test_event, namespace="/other_namespace/")
+        dispatcher._publish.assert_called_once_with(
+            "other_namespace", ANY, None, None)
 
     def test_lifecycle(self):
         """Test connect and disconnect flow."""
@@ -293,7 +311,14 @@ class TestAsyncDispatcher:
         # Test async emit
         result = await dispatcher.emit(test_event, data=test_data)
         assert result is True
-        dispatcher._publish.assert_awaited_once()
+        dispatcher._publish.assert_awaited_once_with(
+            dispatcher.namespace, ANY, None, None)
+        dispatcher._publish.reset_mock()
+
+        # Events go to another namespace when told to
+        await dispatcher.emit(test_event, namespace="/other_namespace/")
+        dispatcher._publish.assert_awaited_once_with(
+            "other_namespace", ANY, None, None)
 
     async def test_lifecycle(self):
         """Test async connect and disconnect flow."""
@@ -384,3 +409,212 @@ class TestAsyncDispatcher:
         await asyncio.sleep(0.2)
 
         assert called
+
+
+# The loops driving a dispatcher (`_listen_loop` and friends) need a working
+# `_listen()`/`_publish()` pair, so they are exercised through the in-memory
+# dispatchers, the simplest concrete implementations of the ABCs.
+
+def make_dispatcher(namespace: str, handler: PingPong) -> InMemoryDispatcher:
+    dispatcher = InMemoryDispatcher(namespace)
+    dispatcher.register_event_handler(handler)
+    return dispatcher
+
+
+class TestListenLoop:
+    def test_event_delivery(self, namespace):
+        """Handlers receive the emitter's uid and the decoded data."""
+        handler = PingPong()
+        dispatcher = make_dispatcher(namespace, handler)
+
+        with running(dispatcher):
+            dispatcher.emit("pong", {"key": "value"})
+
+            sid, data = handler.expect("pong")
+            assert sid == dispatcher.host_uid
+            assert data == {"key": "value"}
+
+    def test_stop_event_stops_dispatcher(self, namespace):
+        dispatcher = InMemoryDispatcher(namespace)
+
+        @dispatcher.on("stop")
+        def on_stop() -> None:
+            raise StopEvent("Stop on first event")
+
+        with running(dispatcher):
+            dispatcher.emit("stop")
+
+            wait_until(lambda: not dispatcher.running)
+            assert dispatcher.stopped is True
+            assert dispatcher.connected is False
+
+    def test_multiple_events(self, namespace):
+        """A burst of events is delivered in full and in order."""
+        handler = PingPong()
+        dispatcher = make_dispatcher(namespace, handler)
+        event_count = 5
+
+        with running(dispatcher):
+            for i in range(event_count):
+                dispatcher.emit("pong", i)
+
+            received = [handler.expect("pong")[1] for _ in range(event_count)]
+            assert received == list(range(event_count))
+
+    def test_rooms(self, namespace):
+        """Events are only delivered to dispatchers that are in the room."""
+        handler1 = PingPong()
+        handler2 = PingPong()
+        dispatcher1 = make_dispatcher(namespace, handler1)
+        dispatcher2 = make_dispatcher(namespace, handler2)
+
+        def deliveries(**kwargs) -> tuple[bool, bool]:
+            """Emit a targeted `pong` from dispatcher1, then a broadcast marker,
+            and tell which dispatchers received the targeted one.
+
+            In-memory delivery is FIFO, so a handler seeing the marker first
+            has filtered the targeted event out.
+            """
+            dispatcher1.emit("pong", "targeted", **kwargs)
+            dispatcher1.emit("pong", "marker")
+            results = []
+            for handler in (handler1, handler2):
+                _, data = handler.expect("pong")
+                if data == "targeted":
+                    handler.expect("pong")  # Consume the marker
+                results.append(data == "targeted")
+            return tuple(results)
+
+        with running(dispatcher1), running(dispatcher2):
+            # Dispatchers enter a room named after their uid as soon as they start
+            assert dispatcher1.rooms == {dispatcher1.host_uid.hex}
+            assert dispatcher2.rooms == {dispatcher2.host_uid.hex}
+
+            # Broadcast
+            assert deliveries() == (True, True)
+
+            # Empty room
+            assert deliveries(room="room1") == (False, False)
+
+            # Dispatcher1 joins room1
+            dispatcher1.enter_room("room1")
+            assert deliveries(room="room1") == (True, False)
+
+            # Both dispatchers join room2
+            dispatcher1.enter_room("room2")
+            dispatcher2.enter_room("room2")
+            assert deliveries(room="room2") == (True, True)
+            assert dispatcher1.rooms == {dispatcher1.host_uid.hex, "room1", "room2"}
+            assert dispatcher2.rooms == {dispatcher2.host_uid.hex, "room2"}
+
+            # Dispatcher1 leaves room1
+            dispatcher1.leave_room("room1")
+            assert deliveries(room="room1") == (False, False)
+            assert dispatcher1.rooms == {dispatcher1.host_uid.hex, "room2"}
+
+            # Direct message to dispatcher2
+            assert deliveries(to=dispatcher2.host_uid) == (False, True)
+
+
+def make_async_dispatcher(
+        namespace: str, handler: AsyncPingPong) -> AsyncInMemoryDispatcher:
+    dispatcher = AsyncInMemoryDispatcher(namespace)
+    dispatcher.register_event_handler(handler)
+    return dispatcher
+
+
+@pytest.mark.asyncio
+class TestAsyncListenLoop:
+    async def test_event_delivery(self, namespace):
+        """Handlers receive the emitter's uid and the decoded data."""
+        handler = AsyncPingPong()
+        dispatcher = make_async_dispatcher(namespace, handler)
+
+        async with async_running(dispatcher):
+            await dispatcher.emit("pong", {"key": "value"})
+
+            sid, data = await handler.expect("pong")
+            assert sid == dispatcher.host_uid
+            assert data == {"key": "value"}
+
+    async def test_stop_event_stops_dispatcher(self, namespace):
+        dispatcher = AsyncInMemoryDispatcher(namespace)
+
+        @dispatcher.on("stop")
+        async def on_stop() -> None:
+            raise StopEvent("Stop on first event")
+
+        async with async_running(dispatcher):
+            await dispatcher.emit("stop")
+
+            await async_wait_until(lambda: not dispatcher.running)
+            assert dispatcher.stopped is True
+            assert dispatcher.connected is False
+
+    async def test_multiple_events(self, namespace):
+        """A burst of events is delivered in full and in order."""
+        handler = AsyncPingPong()
+        dispatcher = make_async_dispatcher(namespace, handler)
+        event_count = 5
+
+        async with async_running(dispatcher):
+            for i in range(event_count):
+                await dispatcher.emit("pong", i)
+
+            received = [
+                (await handler.expect("pong"))[1] for _ in range(event_count)]
+            assert received == list(range(event_count))
+
+    async def test_rooms(self, namespace):
+        """Events are only delivered to dispatchers that are in the room."""
+        handler1 = AsyncPingPong()
+        handler2 = AsyncPingPong()
+        dispatcher1 = make_async_dispatcher(namespace, handler1)
+        dispatcher2 = make_async_dispatcher(namespace, handler2)
+
+        async def deliveries(**kwargs) -> tuple[bool, bool]:
+            """Emit a targeted `pong` from dispatcher1, then a broadcast marker,
+            and tell which dispatchers received the targeted one.
+
+            In-memory delivery is FIFO, so a handler seeing the marker first
+            has filtered the targeted event out.
+            """
+            await dispatcher1.emit("pong", "targeted", **kwargs)
+            await dispatcher1.emit("pong", "marker")
+            results = []
+            for handler in (handler1, handler2):
+                _, data = await handler.expect("pong")
+                if data == "targeted":
+                    await handler.expect("pong")  # Consume the marker
+                results.append(data == "targeted")
+            return tuple(results)
+
+        async with async_running(dispatcher1), async_running(dispatcher2):
+            # Dispatchers enter a room named after their uid as soon as they start
+            assert dispatcher1.rooms == {dispatcher1.host_uid.hex}
+            assert dispatcher2.rooms == {dispatcher2.host_uid.hex}
+
+            # Broadcast
+            assert await deliveries() == (True, True)
+
+            # Empty room
+            assert await deliveries(room="room1") == (False, False)
+
+            # Dispatcher1 joins room1
+            dispatcher1.enter_room("room1")
+            assert await deliveries(room="room1") == (True, False)
+
+            # Both dispatchers join room2
+            dispatcher1.enter_room("room2")
+            dispatcher2.enter_room("room2")
+            assert await deliveries(room="room2") == (True, True)
+            assert dispatcher1.rooms == {dispatcher1.host_uid.hex, "room1", "room2"}
+            assert dispatcher2.rooms == {dispatcher2.host_uid.hex, "room2"}
+
+            # Dispatcher1 leaves room1
+            dispatcher1.leave_room("room1")
+            assert await deliveries(room="room1") == (False, False)
+            assert dispatcher1.rooms == {dispatcher1.host_uid.hex, "room2"}
+
+            # Direct message to dispatcher2
+            assert await deliveries(to=dispatcher2.host_uid) == (False, True)
