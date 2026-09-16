@@ -292,6 +292,16 @@ class Dispatcher(BaseDispatcher["EventHandler"], ABC):
         """Get a generator that yields payloads that will be parsed."""
         ...
 
+    def _interrupt_listening(self) -> None:
+        """Make a blocked `_listen()` return, by any means.
+
+        Called by `stop()`, from another thread, when the main listening loop
+        doesn't exit on its own (neither the stop signal nor the read timeout
+        reached it). Backends whose read can block indefinitely should override
+        it, typically by dropping the socket `_listen()` is reading on.
+        """
+        pass
+
     # Handling of broker-connection related events
     def _handle_broker_connect(self) -> None:
         if not self.connected:
@@ -724,7 +734,11 @@ class Dispatcher(BaseDispatcher["EventHandler"], ABC):
         thread.join(timeout)
         if thread.is_alive():
             self.logger.warning(
-                f"The main loop did not exit within {timeout} s")
+                f"The main loop did not exit within {timeout} s, interrupting it")
+            self._interrupt_listening()
+            thread.join(timeout)
+            if thread.is_alive():
+                self.logger.error("The main loop could not be interrupted")
 
     def stop(self, timeout: float = 2.0) -> None:
         """Stop the dispatcher and clean up resources.
@@ -1269,7 +1283,10 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
     async def _wait_main_loop(self, timeout: float) -> None:
         """Wait for the main loop to exit on its own.
 
-        A loop still pending afterwards is cancelled by `_stop_tasks()`.
+        No interruption hook here, unlike the sync version: any blocked `await`
+        is cancellable, so a loop still pending afterwards is cancelled by
+        `_stop_tasks()` (when it was started by `start(block=False)`; a loop
+        running in the caller's own task is never cancelled).
         """
         task = self._main_loop_task
         if task is None or task is asyncio.current_task():
