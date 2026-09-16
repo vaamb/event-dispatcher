@@ -1,9 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 — September 2026
 
-- Fix `AsyncRedisDispatcher._broker_reachable()` — `Redis.from_url()` was not
-  awaited (#57)
+- Fix `RedisDispatcher` and `AsyncRedisDispatcher` — neither could send or
+  receive a message: `_broker_reachable()` now pings the server instead of
+  always returning `True`, `_publish()` sends `bytes` (redis-py rejects
+  `bytearray`), `_listen()` uses a non-blocking read and skips the subscribe
+  confirmation, and the async pub/sub subscribes in `_listen()` instead of
+  from a property; connections are released on stop (#57, #70)
+- `RedisDispatcher` is now importable from the `dispatcher` module (#70)
 - Payloads that fail to parse are now logged and skipped instead of crashing
   the listening loop (#58)
 - `BaseDispatcher(reconnection=False)` now cleans up its resources when the
@@ -16,8 +21,16 @@
 - `KombuDispatcher`: the listener thread owns the listener connection,
   connections are closed exactly once, and publishing is serialized with a
   lock as py-amqp connections are not thread-safe (#63, #67)
-- Add tests for `AsyncAMQPDispatcher` and `KombuDispatcher` against real
-  brokers; CI now provides RabbitMQ and Redis services (#61, #63)
+- Add `Dispatcher._interrupt_listening()`: if the main loop has not exited
+  within `stop()`'s timeout, it is forcibly interrupted and joined once more;
+  `KombuDispatcher` implements it by dropping the listener socket (#68)
+- Add tests for `AsyncAMQPDispatcher`, `KombuDispatcher` and the Redis
+  dispatchers against real brokers; CI now provides RabbitMQ and Redis
+  services (#61, #63, #70)
+- Run the same broker test contract against the in-memory dispatchers and
+  move the listening-loop tests to `test_abc.py`; `TestAsyncDispatcher` was a
+  `unittest.TestCase` that pytest-asyncio never drove, so its tests now
+  actually run (#71)
 - Pin `ruff` and `ty` versions; fix the `ty` warnings they surfaced (#59)
 
 ## 0.8.1 — July 2026
