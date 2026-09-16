@@ -726,8 +726,15 @@ class Dispatcher(BaseDispatcher["EventHandler"], ABC):
             self.logger.warning(
                 f"The main loop did not exit within {timeout} s")
 
-    def stop(self) -> None:
-        """Stop the dispatcher and clean up resources."""
+    def stop(self, timeout: float = 2.0) -> None:
+        """Stop the dispatcher and clean up resources.
+
+        The main loop releases the broker resources itself as it exits, so
+        this only asks it to exit and waits for it.
+
+        :param timeout: How long to wait for the main loop to exit on its own
+                        before interrupting it.
+        """
         if not self.running:
             raise RuntimeError("Not running")
 
@@ -748,8 +755,10 @@ class Dispatcher(BaseDispatcher["EventHandler"], ABC):
                 ttl=15,
             )
 
-            # Handle broker disconnect, will clean up threads
-            self._handle_stop_signal()
+            self._wait_main_loop(timeout)
+            # The main loop should have already closed all threads when it stopped
+            # Doesn't cost much to be extra sure if it didn't happen in time
+            self._stop_threads(timeout)
 
             # Clear all handlers and sessions
             with self._event_handlers_lock:
@@ -1273,8 +1282,15 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
             self.logger.warning(
                 f"The main loop did not exit within {timeout} s")
 
-    async def stop(self) -> None:
-        """Stop the dispatcher and clean up resources."""
+    async def stop(self, timeout: float = 2.0) -> None:
+        """Stop the dispatcher and clean up resources.
+
+        The main loop releases the broker resources itself as it exits, so
+        this only asks it to exit and waits for it.
+
+        :param timeout: How long to wait for the main loop to exit on its own
+                        before cancelling it.
+        """
         if not self.running:
             raise RuntimeError("Not running")
 
@@ -1295,8 +1311,10 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
                 ttl=15,
             )
 
-            # Handle broker disconnect, will clean up threads
-            await self._handle_stop_signal()
+            await self._wait_main_loop(timeout)
+            # The main loop should have already closed all tasks when it stopped
+            # Doesn't cost much to be extra sure if it didn't happen in time
+            await self._stop_tasks()
 
             # Clear all handlers and sessions
             self.event_handlers.clear()

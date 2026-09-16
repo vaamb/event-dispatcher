@@ -56,6 +56,6 @@ class InMemoryDispatcher(Dispatcher):
             else:
                 yield message
 
-    def stop(self) -> None:
-        super().stop()
+    def stop(self, timeout: float = 2.0) -> None:
+        super().stop(timeout)
         self.pubsub.broker.unlink(self.pubsub)

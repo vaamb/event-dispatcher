@@ -57,6 +57,6 @@ class AsyncInMemoryDispatcher(AsyncDispatcher):
     async def initialize(self) -> None:
         pass
 
-    async def stop(self) -> None:
-        await super().stop()
+    async def stop(self, timeout: float = 2.0) -> None:
+        await super().stop(timeout)
         self.pubsub.broker.unlink(self.pubsub)
