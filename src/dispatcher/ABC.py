@@ -260,6 +260,7 @@ class Dispatcher(BaseDispatcher["EventHandler"], ABC):
         # Thread management
         self._threads: dict[str, Thread] = {}
         self._threads_lock = RLock()
+        self._main_loop_thread: Thread | None = None
         self._event_handlers_lock = RLock()
         self._sessions_lock = RLock()
 
@@ -436,6 +437,7 @@ class Dispatcher(BaseDispatcher["EventHandler"], ABC):
                 raise
 
     def _master_loop(self) -> None:
+        self._main_loop_thread = current_thread()
         try:
             while self.running:
                 try:
@@ -783,6 +785,7 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
 
         # Task management
         self._tasks: dict[str, Task] = {}
+        self._main_loop_task: Task | None = None
 
     @abstractmethod
     async def _broker_reachable(self) -> bool:
@@ -963,6 +966,7 @@ class AsyncDispatcher(BaseDispatcher["AsyncEventHandler"], ABC):
                 raise
 
     async def _master_loop(self) -> None:
+        self._main_loop_task = asyncio.current_task()
         try:
             while self.running:
                 try:
