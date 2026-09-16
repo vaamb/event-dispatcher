@@ -59,6 +59,8 @@ class KombuDispatcher(Dispatcher):
         self._publisher_connection: kombu.Connection | None = None
         self._listener_connection: kombu.Connection | None = None
         self._connections_lock = Lock()
+        # py-amqp connections are not thread-safe, so use a lock to serialize publishing
+        self._publisher_lock = Lock()
 
     def _broker_reachable(self) -> bool:
         try:
@@ -88,16 +90,16 @@ class KombuDispatcher(Dispatcher):
         return self._listener_connection
 
     def _clear_connections(self) -> None:
-        # `stop()` runs `_handle_stop_signal()` from both the calling thread and
-        # the listener thread (via the stop signal). py-amqp connections are not
-        # thread-safe, so make sure each one is closed exactly once.
+        # Called by the main loop as it exits, so the listener connection is
+        # closed by the thread that was reading on it
         with self._connections_lock:
             publisher_connection = self._publisher_connection
             listener_connection = self._listener_connection
             self._publisher_connection = None
             self._listener_connection = None
         if publisher_connection is not None:
-            publisher_connection.close()
+            with self._publisher_lock:
+                publisher_connection.close()
         if listener_connection is not None:
             listener_connection.close()
 
@@ -145,21 +147,23 @@ class KombuDispatcher(Dispatcher):
             ttl: int | None = None,
             timeout: int | float | None = None,
     ) -> None:
-        channel = self._channel(self.publisher_connection)
-        try:
-            with kombu.Producer(channel, exchange=self._exchange()) as producer:
-                producer.publish(
-                    payload, routing_key=namespace, expiration=ttl,
-                    content_type='application/binary', content_encoding='binary',
-                    timeout=timeout, **self.publisher_options)
-        except Exception as e:
-            self.logger.error(
-                f"Encountered an exception while trying to publish message. "
-                f"ERROR msg: `{e.__class__.__name__}: {e}`."
-            )
-            raise ConnectionError("Failed to publish payload")
-        finally:
-            channel.close()
+        with self._publisher_lock:
+            channel = self._channel(self.publisher_connection)
+            try:
+                with kombu.Producer(channel, exchange=self._exchange()) as producer:
+                    producer.publish(
+                        payload, routing_key=namespace, expiration=ttl,
+                        content_type='application/binary',
+                        content_encoding='binary', timeout=timeout,
+                        **self.publisher_options)
+            except Exception as e:
+                self.logger.error(
+                    f"Encountered an exception while trying to publish message. "
+                    f"ERROR msg: `{e.__class__.__name__}: {e}`."
+                )
+                raise ConnectionError("Failed to publish payload")
+            finally:
+                channel.close()
 
     def _listen(self) -> Iterator[bytes]:
         self.listener_connection.connect()  # Make sure the connection is connected
