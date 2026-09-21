@@ -40,7 +40,7 @@ jobs:
         enable-cache: true
 
     - name: Install dependencies
-      run: uv sync --extra test --group qc
+      run: uv sync --group qc --group test
 
     - name: Type check with ty
       run: uv run ty check src/
