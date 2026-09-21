@@ -11,7 +11,12 @@ dynamic = ["version"]
 [project.urls]
 repository  = "https://github.com/vaamb/event-dispatcher"
 
-[project.optional-dependencies]
+[dependency-groups]
+qc = [
+    "ruff~=0.15.0",
+    "ty==0.0.78",
+]
+
 test = [
     "aio-pika~=9.6",
     "coverage~=7.6",
@@ -20,12 +25,6 @@ test = [
     "pytest~=9.0",
     "pytest-asyncio~=1.0",
     "redis~=7.4",
-]
-
-[dependency-groups]
-qc = [
-    "ruff~=0.15.0",
-    "ty==0.0.78",
 ]
 
 [build-system]
